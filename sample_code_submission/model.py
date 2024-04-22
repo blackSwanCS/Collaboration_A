@@ -110,5 +110,5 @@ class Model:
 
         predictions = self.model.predict(test_data)
 
-        mu_hat = calculate_mu(predictions, test_weights)
-        return mu_hat
+        result = calculate_mu(predictions, test_weights)
+        return result
