@@ -1,1 +1,1 @@
-{"systematics": {"tes": true, "jes": false, "soft_met": false, "w_scale": false, "bkg_scale": false}, "num_pseudo_experiments": 2, "num_of_sets": 5, "ground_truth_mus": [2.5171472197106697, 2.1698852082404367, 0.8260860504935916, 1.2133294119286524, 2.753210221980848]}
+{"systematics": {"tes": true, "jes": false, "soft_met": false, "w_scale": false, "bkg_scale": false}, "num_pseudo_experiments": 2, "num_of_sets": 5, "ground_truth_mus": [0.10851163594091287, 2.0504291992222665, 1.7816193485109055, 0.8714073867429484, 1.3176642054549819]}
