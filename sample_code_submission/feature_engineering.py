@@ -12,7 +12,7 @@ def feature_engineering(df):
 
     new_columns = []  # List to store the names of the new columns
 
-    df_new = pd.DataFrame(
+    df_new = pd.DataFrame(df,
         columns=new_columns
     )  # Create a new dataframe with only the required columns
 

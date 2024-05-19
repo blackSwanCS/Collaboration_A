@@ -13,10 +13,10 @@ class NeuralNetwork:
     def __init__(self):
         self.model = None
 
-    def fit(self):
+    def fit(self,train_data):
         # Implement your fitting logic here
         pass
 
-    def predict(self, data):
+    def predict(self, test_data):
         # Implement your prediction logic here
-        pass
+        return np.random.randint(0, 1, len(test_data))

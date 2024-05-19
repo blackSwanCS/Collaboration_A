@@ -5,10 +5,8 @@ def derived_feature(df):
     # and store the results in new columns
     
     # Example: Derive a new feature by adding two existing features
-    df['derived_feature'] = df['feature1'] + df['feature2']
+    df['derived_feature'] = df['PRI_lep_pt'] + df['PRI_had_pt']
     
-    # Example: Derive another feature by subtracting two existing features
-    df['derived_feature2'] = df['feature3'] - df['feature4']
     
     # Return the DataFrame with the derived features
     return df

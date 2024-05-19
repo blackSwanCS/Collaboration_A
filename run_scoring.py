@@ -61,7 +61,7 @@ else:
         sys.exit(1)
         
         
-from score import Scoring
+from HiggsML.score import Scoring
 
 
 # Init scoring
