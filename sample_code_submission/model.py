@@ -5,7 +5,7 @@
 BDT = False
 NN = False
 
-from statistics import calculate_mu
+from statistical_analysis import calculate_mu
 from feature_engineering import feature_engineering
 from derived_features import derived_feature
 
@@ -40,7 +40,7 @@ class Model:
             your trained model file is now in model_dir, you can load it from here
     """
 
-    def __init__(self, train_set=None, systematics=None):
+    def __init__(self, get_train_set=None, systematics=None):
         """
         Model class constructor
 
@@ -57,7 +57,7 @@ class Model:
             None
         """
         self.train_set = (
-            train_set  # train_set is a dictionary with data, labels and weights
+            get_train_set  # train_set is a dictionary with data, labels and weights
         )
         self.systematics = systematics
 

@@ -9,8 +9,7 @@ import pathlib
 import os
 import numpy as np
 
-module_dir = os.path.dirname(os.path.realpath(__file__))
-root_dir_name = os.path.dirname(module_dir)
+root_dir_name = os.path.dirname(os.path.realpath(__file__))
 
 parser = argparse.ArgumentParser(
     description="This is script to run ingestion program for the competition"
@@ -82,7 +81,6 @@ if not args.codabench:
     input_dir = args.input
     output_dir = args.output
     submission_dir = args.submission
-    program_dir = os.path.join(root_dir_name, "ingestion_program")
 else:
     input_dir = "/app/input_data"
     output_dir = "/app/output"
@@ -91,14 +89,13 @@ else:
 
 
 if args.public_dataset:
-    from datasets import Neurips2024_public_dataset as public_dataset
+    from HiggsML.datasets import Neurips2024_public_dataset as public_dataset
 
     data = public_dataset()
 else:
     data = Data(input_dir)
 
 
-sys.path.append(program_dir)
 sys.path.append(submission_dir)
 
 from model import Model
