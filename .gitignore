@@ -162,3 +162,4 @@ cython_debug/
 # Other files
 public_data/
 BlackSwan-code*
+sample_result_submission/
