@@ -3,11 +3,12 @@
 # ------------------------------
 
 BDT = False
-NN = False
+NN = True
 
-from statistical_analysis import calculate_mu
+from statistical_analysis import calculate_mu, compute_mu
 from feature_engineering import feature_engineering
 from derived_features import derived_feature
+from sklearn.model_selection import train_test_split
 
 
 class Model:
@@ -60,15 +61,47 @@ class Model:
             get_train_set  # train_set is a dictionary with data, labels and weights
         )
         self.systematics = systematics
+        print("Full data: ", self.train_set["data"].shape)
+        print("Full Labels: ", self.train_set["labels"].shape)
+        print("Full Weights: ", self.train_set["weights"].shape)
+        print(" \n ")
+
+        (
+            self.train_data,
+            self.valid_data,
+            self.train_labels,
+            self.valid_labels,
+            self.train_weight,
+            self.valid_weight,
+        ) = train_test_split(
+            self.train_set["data"],
+            self.train_set["labels"],
+            self.train_set["weights"],
+            test_size=0.2,
+            random_state=42,
+        )
+
+        print("Train Data: ", self.train_data.shape)
+        print("Train Labels: ", self.train_labels.shape)
+        print("Train Weights: ", self.train_weight.shape)
+        print()
+        print("Valid Data: ", self.valid_data.shape)
+        print("Valid Labels: ", self.valid_labels.shape)
+        print("Valid Weights: ", self.valid_weight.shape)
+        print(" \n ")
 
         if BDT:
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree()
+            self.model = BoostedDecisionTree(train_data=self.train_data)
+
+            print("Model is BDT")
         else:
             from neural_network import NeuralNetwork
 
-            self.model = NeuralNetwork()
+            self.model = NeuralNetwork(train_data=self.train_data)
+
+            print("Model is NN")
 
     def fit(self):
         """
@@ -82,12 +115,31 @@ class Model:
             None
         """
 
-        train_data_with_derived_features = derived_feature(self.train_set["data"])
+        train_data_with_derived_features = derived_feature(self.train_data)
 
         training_data = feature_engineering(train_data_with_derived_features)
 
-        self.model.fit(training_data)
-        pass
+        print("Training Data: ", training_data.shape)
+
+        self.model.fit(training_data, self.train_labels)
+
+        self.saved_info = calculate_mu(
+            self.model, training_data, self.train_labels, self.train_weight
+        )
+
+        train_score = self.model.predict(training_data)
+        train_results = compute_mu(train_score, self.train_weight, self.saved_info)
+
+        valid_data_with_derived_features = derived_feature(self.valid_data)
+
+        valid_data = feature_engineering(valid_data_with_derived_features)
+
+        valid_score = self.model.predict(valid_data)
+
+        valid_results = compute_mu(valid_score, self.valid_weight, self.saved_info)
+
+        print("train Results: ", train_results)
+        print("valid Results: ", valid_results)
 
     def predict(self, test_set):
         """
@@ -105,10 +157,21 @@ class Model:
                 - p84
         """
 
-        test_data = feature_engineering(test_set["data"])
+        test_data = derived_feature(test_set["data"])
+        test_data = feature_engineering(test_data)
         test_weights = test_set["weights"]
 
         predictions = self.model.predict(test_data)
 
-        result = calculate_mu(predictions, test_weights)
+        result_mu_cal = compute_mu(predictions, test_weights, self.saved_info)
+
+        print("Test Results: ", result_mu_cal)
+
+        result = {
+            "mu_hat": result_mu_cal["mu_hat"],
+            "delta_mu_hat": result_mu_cal["del_mu_tot"],
+            "p16": result_mu_cal["mu_hat"] - result_mu_cal["del_mu_tot"],
+            "p84": result_mu_cal["mu_hat"] + result_mu_cal["del_mu_tot"],
+        }
+
         return result

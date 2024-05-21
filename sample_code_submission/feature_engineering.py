@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 
 def feature_engineering(df):
@@ -10,8 +11,8 @@ def feature_engineering(df):
     # Perform feature engineering operations here and create 
     # a list of column names required for training the model
 
-    new_columns = []  # List to store the names of the new columns
-
+    new_columns = df.columns.tolist()
+    
     df_new = pd.DataFrame(df,
         columns=new_columns
     )  # Create a new dataframe with only the required columns
