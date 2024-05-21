@@ -66,6 +66,11 @@ class Model:
         print("Full Weights: ", self.train_set["weights"].shape)
         print(" \n ")
 
+        sum_signal_weights = self.train_set["weights"][
+            self.train_set["labels"] == 1
+        ].sum()
+        sum_bkg_weights = self.train_set["weights"][self.train_set["labels"] == 0].sum()
+
         (
             self.train_data,
             self.valid_data,
@@ -81,6 +86,29 @@ class Model:
             random_state=42,
         )
 
+        # Normalizing the weights
+        self.train_weight[self.train_labels == 1] = (
+            self.train_weight[self.train_labels == 1]
+            * sum_bkg_weights
+            / sum_signal_weights
+        )
+        self.valid_weight[self.valid_labels == 1] = (
+            self.valid_weight[self.valid_labels == 1]
+            * sum_bkg_weights
+            / sum_signal_weights
+        )
+
+        self.train_weight[self.train_labels == 0] = (
+            self.train_weight[self.train_labels == 0]
+            * sum_signal_weights
+            / sum_bkg_weights
+        )
+        self.valid_weight[self.valid_labels == 0] = (
+            self.valid_weight[self.valid_labels == 0]
+            * sum_signal_weights
+            / sum_bkg_weights
+        )
+
         print("Train Data: ", self.train_data.shape)
         print("Train Labels: ", self.train_labels.shape)
         print("Train Weights: ", self.train_weight.shape)
@@ -90,16 +118,22 @@ class Model:
         print("Valid Weights: ", self.valid_weight.shape)
         print(" \n ")
 
+        train_data_with_derived_features = derived_feature(self.train_data)
+
+        training_data = feature_engineering(train_data_with_derived_features)
+
+        print("Training Data: ", training_data.shape)
+
         if BDT:
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree(train_data=self.train_data)
+            self.model = BoostedDecisionTree(train_data=training_data)
 
             print("Model is BDT")
         else:
             from neural_network import NeuralNetwork
 
-            self.model = NeuralNetwork(train_data=self.train_data)
+            self.model = NeuralNetwork(train_data=training_data)
 
             print("Model is NN")
 

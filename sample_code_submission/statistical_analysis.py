@@ -56,7 +56,6 @@ def calculate_mu(model, train_data, train_labels, train_weight):
 
     print("Score plus syst: ", score_plus_syst.shape)
     print("Score minus syst: ", score_minus_syst.shape)
-    print("Weights: ", train_set["weights"].shape)
 
     gamma = (
         np.sum(train_plus_syst["weights"] * score_plus_syst)
