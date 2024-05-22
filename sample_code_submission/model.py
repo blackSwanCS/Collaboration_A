@@ -8,8 +8,8 @@ NN = True
 from statistical_analysis import calculate_mu, compute_mu
 from feature_engineering import feature_engineering
 from derived_features import derived_feature
-from sklearn.model_selection import train_test_split
-
+from HiggsML.datasets import train_test_split
+import HiggsML.visualization as visualization
 
 class Model:
     """
@@ -61,79 +61,51 @@ class Model:
             get_train_set  # train_set is a dictionary with data, labels and weights
         )
         self.systematics = systematics
+        
+        del self.train_set["settings"]
+
+        
         print("Full data: ", self.train_set["data"].shape)
         print("Full Labels: ", self.train_set["labels"].shape)
         print("Full Weights: ", self.train_set["weights"].shape)
+        print("sum_signal_weights: ", self.train_set["weights"][self.train_set["labels"] == 1].sum())
+        print("sum_bkg_weights: ", self.train_set["weights"][self.train_set["labels"] == 0].sum())
         print(" \n ")
+        
+        
+        self.training_set , self.valid_set = train_test_split(data_set = self.train_set, test_size=0.2, random_state=42, reweight=True)
 
-        sum_signal_weights = self.train_set["weights"][
-            self.train_set["labels"] == 1
-        ].sum()
-        sum_bkg_weights = self.train_set["weights"][self.train_set["labels"] == 0].sum()
-
-        (
-            self.train_data,
-            self.valid_data,
-            self.train_labels,
-            self.valid_labels,
-            self.train_weight,
-            self.valid_weight,
-        ) = train_test_split(
-            self.train_set["data"],
-            self.train_set["labels"],
-            self.train_set["weights"],
-            test_size=0.2,
-            random_state=42,
-        )
-
-        # Normalizing the weights
-        self.train_weight[self.train_labels == 1] = (
-            self.train_weight[self.train_labels == 1]
-            * sum_bkg_weights
-            / sum_signal_weights
-        )
-        self.valid_weight[self.valid_labels == 1] = (
-            self.valid_weight[self.valid_labels == 1]
-            * sum_bkg_weights
-            / sum_signal_weights
-        )
-
-        self.train_weight[self.train_labels == 0] = (
-            self.train_weight[self.train_labels == 0]
-            * sum_signal_weights
-            / sum_bkg_weights
-        )
-        self.valid_weight[self.valid_labels == 0] = (
-            self.valid_weight[self.valid_labels == 0]
-            * sum_signal_weights
-            / sum_bkg_weights
-        )
-
-        print("Train Data: ", self.train_data.shape)
-        print("Train Labels: ", self.train_labels.shape)
-        print("Train Weights: ", self.train_weight.shape)
+        del  self.train_set
+        
+        print("Training Data: ", self.training_set["data"].shape)
+        print("Training Labels: ", self.training_set["labels"].shape)
+        print("Training Weights: ", self.training_set["weights"].shape)
+        print("sum_signal_weights: ", self.training_set["weights"][self.training_set["labels"] == 1].sum())
+        print("sum_bkg_weights: ", self.training_set["weights"][self.training_set["labels"] == 0].sum())
         print()
-        print("Valid Data: ", self.valid_data.shape)
-        print("Valid Labels: ", self.valid_labels.shape)
-        print("Valid Weights: ", self.valid_weight.shape)
+        print("Valid Data: ", self.valid_set["data"].shape)
+        print("Valid Labels: ", self.valid_set["labels"].shape)
+        print("Valid Weights: ", self.valid_set["weights"].shape)
+        print("sum_signal_weights: ", self.valid_set["weights"][self.valid_set["labels"] == 1].sum())
+        print("sum_bkg_weights: ", self.valid_set["weights"][self.valid_set["labels"] == 0].sum())
         print(" \n ")
 
-        train_data_with_derived_features = derived_feature(self.train_data)
+        train_data_with_derived_features = derived_feature(self.training_set["data"])
 
-        training_data = feature_engineering(train_data_with_derived_features)
+        self.training_set["data"] = feature_engineering(train_data_with_derived_features)
 
-        print("Training Data: ", training_data.shape)
+        print("Training Data: ", self.training_set["data"].shape)
 
         if BDT:
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree(train_data=training_data)
+            self.model = BoostedDecisionTree(train_data=self.training_set["data"])
 
             print("Model is BDT")
         else:
             from neural_network import NeuralNetwork
 
-            self.model = NeuralNetwork(train_data=training_data)
+            self.model = NeuralNetwork(train_data=self.training_set["data"])
 
             print("Model is NN")
 
@@ -149,31 +121,43 @@ class Model:
             None
         """
 
-        train_data_with_derived_features = derived_feature(self.train_data)
-
-        training_data = feature_engineering(train_data_with_derived_features)
-
-        print("Training Data: ", training_data.shape)
-
-        self.model.fit(training_data, self.train_labels)
+        self.model.fit(self.training_set["data"], self.training_set["labels"])
 
         self.saved_info = calculate_mu(
-            self.model, training_data, self.train_labels, self.train_weight
+            self.model,  self.training_set
         )
 
-        train_score = self.model.predict(training_data)
-        train_results = compute_mu(train_score, self.train_weight, self.saved_info)
+        train_score = self.model.predict(self.training_set["data"])
+        train_results = compute_mu(train_score, self.training_set["weights"], self.saved_info)
 
-        valid_data_with_derived_features = derived_feature(self.valid_data)
+        valid_data_with_derived_features = derived_feature(self.valid_set["data"])
 
-        valid_data = feature_engineering(valid_data_with_derived_features)
+        self.valid_set["data"] = feature_engineering(valid_data_with_derived_features)
 
-        valid_score = self.model.predict(valid_data)
+        valid_score = self.model.predict(self.valid_set["data"])
 
-        valid_results = compute_mu(valid_score, self.valid_weight, self.saved_info)
+        valid_results = compute_mu(valid_score, self.valid_set["weights"], self.saved_info)
 
         print("train Results: ", train_results)
         print("valid Results: ", valid_results)
+        
+        self.valid_set["data"]["score"] = valid_score
+        
+
+        
+        valid_visualize = visualization.Dataset_visualise(
+            data_set=self.valid_set,
+            columns=[
+                "PRI_jet_leading_pt",
+                "PRI_met",
+                "score",
+
+            ],
+            name="Train Set",
+        )
+        
+        valid_visualize.histogram_dataset()
+        valid_visualize.stacked_histogram("score")
 
     def predict(self, test_set):
         """

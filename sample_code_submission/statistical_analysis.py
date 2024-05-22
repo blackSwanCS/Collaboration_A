@@ -22,12 +22,11 @@ def compute_mu(score, weight, saved_info):
     }
 
 
-def calculate_mu(model, train_data, train_labels, train_weight):
+def calculate_mu(model, train_set):
     """
     Dummy function to calculate mu
     Replace with actual calculations
     """
-    train_set = {"data": train_data, "labels": train_labels, "weights": train_weight}
 
     train_plus_syst = systematics(
         data_set=train_set,
