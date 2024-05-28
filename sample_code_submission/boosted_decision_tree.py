@@ -16,13 +16,12 @@ class BoostedDecisionTree:
         self.model = XGBClassifier()
         self.scaler = StandardScaler()
 
+    def fit(self, train_data, labels, weights=None):
 
-    def fit(self, train_data, labels):
-        
         self.scaler.fit_transform(train_data)
-                
+
         X_train_data = self.scaler.transform(train_data)
-        self.model.fit(X_train_data, labels, eval_metric="logloss")
+        self.model.fit(X_train_data, labels, weights, eval_metric="logloss")
 
     def predict(self, test_data):
         test_data = self.scaler.transform(test_data)

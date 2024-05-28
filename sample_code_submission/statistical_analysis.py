@@ -9,8 +9,11 @@ def compute_mu(score, weight, saved_info):
     Feel free to add more functions and change the function parameters
 
     """
+
     mu = (np.sum(score * weight) - saved_info["beta"]) / saved_info["gamma"]
-    del_mu_stat = np.sqrt(saved_info["beta"] + saved_info["gamma"])/saved_info["gamma"]
+    del_mu_stat = (
+        np.sqrt(saved_info["beta"] + saved_info["gamma"]) / saved_info["gamma"]
+    )
     del_mu_sys = abs(0.1 * mu)
     del_mu_tot = (1 / 2) * np.sqrt(del_mu_stat**2 + del_mu_sys**2)
 
@@ -49,7 +52,6 @@ def calculate_mu(model, train_set):
         bkg_scale=None,
         verbose=0,
     )
-
     score_plus_syst = model.predict(train_plus_syst["data"])
     score_minus_syst = model.predict(train_minus_syst["data"])
 
