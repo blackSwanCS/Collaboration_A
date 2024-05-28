@@ -2,8 +2,8 @@
 # Dummy Sample Submission
 # ------------------------------
 
-BDT = False
-NN = True
+BDT = True
+NN = False
 
 from statistical_analysis import calculate_mu, compute_mu
 from feature_engineering import feature_engineering
@@ -138,12 +138,15 @@ class Model:
 
         valid_results = compute_mu(valid_score, self.valid_set["weights"], self.saved_info)
 
-        print("train Results: ", train_results)
-        print("valid Results: ", valid_results)
+        print("Train Results: ")
+        for key in train_results.keys():
+            print("\t",key, " : ", train_results[key])
+        
+        print("Valid Results: ")    
+        for key in valid_results.keys():
+            print("\t",key, " : ", valid_results[key])
         
         self.valid_set["data"]["score"] = valid_score
-        
-
         
         valid_visualize = visualization.Dataset_visualise(
             data_set=self.valid_set,
