@@ -89,7 +89,7 @@ else:
 
 
 if args.public_dataset:
-    from HiggsML.datasets import Neurips2024_public_dataset as public_dataset
+    from HiggsML.datasets import BlackSwan_public_dataset as public_dataset
 
     data = public_dataset()
 else:

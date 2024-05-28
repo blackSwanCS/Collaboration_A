@@ -2,12 +2,15 @@
 # Dummy Sample Submission
 # ------------------------------
 
-BDT = False
+BDT = True
 NN = False
 
-from statistical_analysis import calculate_mu
+from statistical_analysis import calculate_saved_info, compute_mu
 from feature_engineering import feature_engineering
-from derived_features import derived_feature
+from HiggsML.datasets import train_test_split
+import HiggsML.visualization as visualization
+
+import os
 
 
 class Model:
@@ -61,14 +64,76 @@ class Model:
         )
         self.systematics = systematics
 
+        del self.train_set["settings"]
+
+        print("Full data: ", self.train_set["data"].shape)
+        print("Full Labels: ", self.train_set["labels"].shape)
+        print("Full Weights: ", self.train_set["weights"].shape)
+        print(
+            "sum_signal_weights: ",
+            self.train_set["weights"][self.train_set["labels"] == 1].sum(),
+        )
+        print(
+            "sum_bkg_weights: ",
+            self.train_set["weights"][self.train_set["labels"] == 0].sum(),
+        )
+        print(" \n ")
+
+        self.training_set, self.valid_set = train_test_split(
+            data_set=self.train_set, test_size=0.3, random_state=42, reweight=True
+        )
+
+        # current_path = os.path.dirname(os.path.abspath(__file__))
+
+        # save_train_data(self.valid_set, current_path, output_format="parquet")
+
+        del self.train_set
+
+        print("Training Data: ", self.training_set["data"].shape)
+        print("Training Labels: ", self.training_set["labels"].shape)
+        print("Training Weights: ", self.training_set["weights"].shape)
+        print(
+            "sum_signal_weights: ",
+            self.training_set["weights"][self.training_set["labels"] == 1].sum(),
+        )
+        print(
+            "sum_bkg_weights: ",
+            self.training_set["weights"][self.training_set["labels"] == 0].sum(),
+        )
+        print()
+        print("Valid Data: ", self.valid_set["data"].shape)
+        print("Valid Labels: ", self.valid_set["labels"].shape)
+        print("Valid Weights: ", self.valid_set["weights"].shape)
+        print(
+            "sum_signal_weights: ",
+            self.valid_set["weights"][self.valid_set["labels"] == 1].sum(),
+        )
+        print(
+            "sum_bkg_weights: ",
+            self.valid_set["weights"][self.valid_set["labels"] == 0].sum(),
+        )
+        print(" \n ")
+
+
+        self.training_set["data"] = feature_engineering(
+            self.training_set["data"]
+        )
+
+        print("Training Data: ", self.training_set["data"].shape)
+
         if BDT:
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree()
+            self.model = BoostedDecisionTree(train_data=self.training_set["data"])
+            self.name = "BDT"
+
+            print("Model is BDT")
         else:
             from neural_network import NeuralNetwork
 
-            self.model = NeuralNetwork()
+            self.model = NeuralNetwork(train_data=self.training_set["data"])
+            self.name = "NN"
+            print("Model is NN")
 
     def fit(self):
         """
@@ -82,12 +147,72 @@ class Model:
             None
         """
 
-        train_data_with_derived_features = derived_feature(self.train_set["data"])
+        balanced_set = self.training_set.copy()
 
-        training_data = feature_engineering(train_data_with_derived_features)
+        weights_train = self.training_set["weights"].copy()
+        train_labels = self.training_set["labels"].copy()
+        class_weights_train = (
+            weights_train[train_labels == 0].sum(),
+            weights_train[train_labels == 1].sum(),
+        )
 
-        self.model.fit(training_data)
-        pass
+        for i in range(len(class_weights_train)):  # loop on B then S target
+            # training dataset: equalize number of background and signal
+            weights_train[train_labels == i] *= (
+                max(class_weights_train) / class_weights_train[i]
+            )
+            # test dataset : increase test weight to compensate for sampling
+
+        balanced_set["weights"] = weights_train
+
+        self.model.fit(
+            balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
+        )
+
+        self.saved_info = calculate_saved_info(self.model, self.training_set)
+
+        train_score = self.model.predict(self.training_set["data"])
+        train_results = compute_mu(
+            train_score, self.training_set["weights"], self.saved_info
+        )
+
+        self.valid_set["data"] = feature_engineering(self.valid_set["data"])
+
+        valid_score = self.model.predict(self.valid_set["data"])
+
+        valid_results = compute_mu(
+            valid_score, self.valid_set["weights"], self.saved_info
+        )
+
+        print("Train Results: ")
+        for key in train_results.keys():
+            print("\t", key, " : ", train_results[key])
+
+        print("Valid Results: ")
+        for key in valid_results.keys():
+            print("\t", key, " : ", valid_results[key])
+
+        self.valid_set["data"]["score"] = valid_score
+
+        valid_visualize = visualization.Dataset_visualise(
+            data_set=self.valid_set,
+            columns=[
+                "PRI_jet_leading_pt",
+                "PRI_met",
+                "score",
+            ],
+            name="Train Set",
+        )
+        valid_visualize.examine_dataset()
+        valid_visualize.histogram_dataset()
+        valid_visualize.stacked_histogram("score",mu_hat = 4)
+
+        visualization.roc_curve_wrapper(
+            score=valid_score,
+            labels=self.valid_set["labels"],
+            weights=self.valid_set["weights"],
+            plot_label="valid_set" + self.name,
+        )
 
     def predict(self, test_set):
         """
@@ -110,5 +235,15 @@ class Model:
 
         predictions = self.model.predict(test_data)
 
-        result = calculate_mu(predictions, test_weights)
+        result_mu_cal = compute_mu(predictions, test_weights, self.saved_info)
+
+        print("Test Results: ", result_mu_cal)
+
+        result = {
+            "mu_hat": result_mu_cal["mu_hat"],
+            "delta_mu_hat": result_mu_cal["del_mu_tot"],
+            "p16": result_mu_cal["mu_hat"] - result_mu_cal["del_mu_tot"],
+            "p84": result_mu_cal["mu_hat"] + result_mu_cal["del_mu_tot"],
+        }
+
         return result
