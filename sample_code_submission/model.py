@@ -5,9 +5,8 @@
 BDT = True
 NN = False
 
-from statistical_analysis import calculate_mu, compute_mu
+from statistical_analysis import calculate_saved_info, compute_mu
 from feature_engineering import feature_engineering
-from derived_features import derived_feature
 from HiggsML.datasets import train_test_split
 import HiggsML.visualization as visualization
 
@@ -115,10 +114,9 @@ class Model:
         )
         print(" \n ")
 
-        train_data_with_derived_features = derived_feature(self.training_set["data"])
 
         self.training_set["data"] = feature_engineering(
-            train_data_with_derived_features
+            self.training_set["data"]
         )
 
         print("Training Data: ", self.training_set["data"].shape)
@@ -165,22 +163,20 @@ class Model:
             )
             # test dataset : increase test weight to compensate for sampling
 
-        balaced_set["weights"] = weights_train
+        balanced_set["weights"] = weights_train
 
         self.model.fit(
-            balaced_set["data"], balaced_set["labels"], balaced_set["weights"]
+            balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
         )
 
-        self.saved_info = calculate_mu(self.model, self.training_set)
+        self.saved_info = calculate_saved_info(self.model, self.training_set)
 
         train_score = self.model.predict(self.training_set["data"])
         train_results = compute_mu(
             train_score, self.training_set["weights"], self.saved_info
         )
 
-        valid_data_with_derived_features = derived_feature(self.valid_set["data"])
-
-        self.valid_set["data"] = feature_engineering(valid_data_with_derived_features)
+        self.valid_set["data"] = feature_engineering(self.valid_set["data"])
 
         valid_score = self.model.predict(self.valid_set["data"])
 
@@ -234,8 +230,7 @@ class Model:
                 - p84
         """
 
-        test_data = derived_feature(test_set["data"])
-        test_data = feature_engineering(test_data)
+        test_data = feature_engineering(test_set["data"])
         test_weights = test_set["weights"]
 
         predictions = self.model.predict(test_data)

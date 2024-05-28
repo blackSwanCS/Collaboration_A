@@ -10,6 +10,10 @@ def compute_mu(score, weight, saved_info):
 
     """
 
+    score = score.flatten() > 0.5
+    score = score.astype(int)
+
+
     mu = (np.sum(score * weight) - saved_info["beta"]) / saved_info["gamma"]
     del_mu_stat = (
         np.sqrt(saved_info["beta"] + saved_info["gamma"]) / saved_info["gamma"]
@@ -25,48 +29,38 @@ def compute_mu(score, weight, saved_info):
     }
 
 
-def calculate_mu(model, train_set):
+def calculate_saved_info(model, train_set):
     """
-    Dummy function to calculate mu
+    Calculate the saved_info dictionary for mu calculation
     Replace with actual calculations
     """
 
-    train_plus_syst = systematics(
-        data_set=train_set,
-        tes=1.03,
-        jes=1.03,
-        soft_met=1.0,
-        seed=31415,
-        w_scale=None,
-        bkg_scale=None,
-        verbose=0,
-    )
+    # train_plus_syst = systematics(
+    #     data_set=train_set,
+    #     tes=1.03,
+    #     jes=1.03,
+    #     soft_met=1.0,
+    #     seed=31415,
+    #     w_scale=None,
+    #     bkg_scale=None,
+    #     verbose=0,
+    # )
 
-    train_minus_syst = systematics(
-        data_set=train_set,
-        tes=0.97,
-        jes=0.97,
-        soft_met=1.0,
-        seed=31415,
-        w_scale=None,
-        bkg_scale=None,
-        verbose=0,
-    )
-    score_plus_syst = model.predict(train_plus_syst["data"])
-    score_minus_syst = model.predict(train_minus_syst["data"])
+    score = model.predict(train_set["data"])
 
-    print("Score plus syst: ", score_plus_syst.shape)
-    print("Score minus syst: ", score_minus_syst.shape)
+    print("score shape before threshold", score.shape)
 
-    gamma = (
-        np.sum(train_plus_syst["weights"] * score_plus_syst)
-        + np.sum(train_minus_syst["weights"] * score_minus_syst)
-    ) / 2
-    beta = (
-        np.sum(train_plus_syst["weights"] * (1 - score_plus_syst))
-        + np.sum(train_minus_syst["weights"] * (1 - score_minus_syst))
-    ) / 2
+    score = score.flatten() > 0.5
+    score = score.astype(int)
+
+    print("score shape after threshold", score.shape)
+
+    gamma = np.sum(train_set["weights"] * score)
+
+    beta = np.sum(train_set["weights"] * (1 - score))
 
     saved_info = {"beta": beta, "gamma": gamma}
+
+    print("saved_info", saved_info)
 
     return saved_info
