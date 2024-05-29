@@ -205,7 +205,7 @@ class Model:
         )
         valid_visualize.examine_dataset()
         valid_visualize.histogram_dataset()
-        valid_visualize.stacked_histogram("score",mu_hat = 4)
+        valid_visualize.stacked_histogram("score",mu_hat = 100)
 
         visualization.roc_curve_wrapper(
             score=valid_score,

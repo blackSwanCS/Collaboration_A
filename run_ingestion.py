@@ -8,6 +8,7 @@ import argparse
 import pathlib
 import os
 import numpy as np
+import json
 
 root_dir_name = os.path.dirname(os.path.realpath(__file__))
 
@@ -50,16 +51,29 @@ parser.add_argument(
     action="store_true",
 )
 parser.add_argument(
-    "--systematics",
-    type=dict,
-    help="Systematics to be used",
-    default={  # Systematics to use
-        "tes": True,
-        "jes": False,
-        "soft_met": False,
-        "w_scale": False,
-        "bkg_scale": False,
-    },
+    "--systematics-tes",
+    action="store_true",
+    help="Whether to use tes systematics",
+)
+parser.add_argument(
+    "--systematics-jes",
+    action="store_true",
+    help="Whether to use jes systematics",
+)
+parser.add_argument(
+    "--systematics-soft-met",
+    action="store_true",
+    help="Whether to use soft_met systematics",
+)
+parser.add_argument(
+    "--systematics-w-scale",
+    action="store_true",
+    help="Whether to use w_scale systematics",
+)
+parser.add_argument(
+    "--systematics-bkg-scale",
+    action="store_true",
+    help="Whether to use bkg_scale systematics",
 )
 parser.add_argument(
     "--num-pseudo-experiments",
@@ -112,9 +126,19 @@ ingestion.init_submission(Model)
 # fit submission
 ingestion.fit_submission()
 test_settings = {}
-test_settings["systematics"] = args.systematics
+test_settings["systematics"] = {
+    "tes": args.systematics_tes,
+    "jes": args.systematics_jes,
+    "soft_met": args.systematics_soft_met,
+    "w_scale": args.systematics_w_scale,
+    "bkg_scale": args.systematics_bkg_scale,
+}
+
 test_settings["num_pseudo_experiments"] = args.num_pseudo_experiments
 test_settings["num_of_sets"] = args.num_of_sets
+
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
 if args.use_random_mus:
     test_settings["ground_truth_mus"] = (
