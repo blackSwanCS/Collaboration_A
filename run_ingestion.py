@@ -35,12 +35,6 @@ parser.add_argument(
     default=os.path.join(root_dir_name, "sample_code_submission"),
 )
 parser.add_argument(
-    "--public-dataset",
-    help="True when using public dataset",
-    action="store_true",
-    default=True,
-)
-parser.add_argument(
     "--codabench",
     help="True when running on Codabench",
     action="store_true",
@@ -102,12 +96,12 @@ else:
     program_dir = "/app/program"
 
 
-if args.public_dataset:
+if not args.codabench:
     from HiggsML.datasets import BlackSwan_public_dataset as public_dataset
 
     data = public_dataset()
 else:
-    data = Data(input_dir)
+    data = Data(input_dir,data_format="parquet")
 
 
 sys.path.append(submission_dir)
