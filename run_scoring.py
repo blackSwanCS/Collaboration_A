@@ -82,7 +82,7 @@ scoring.load_ingestion_duration(ingestion_duration_file)
 print(prediction_dir)
 
 # Load ingestions results
-scoring.load_ingestion_results(prediction_dir)
+scoring.load_ingestion_results(prediction_dir,output_dir)
 
 # Compute Scores
 scoring.compute_scores(test_settings)

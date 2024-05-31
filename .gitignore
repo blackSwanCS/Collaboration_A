@@ -163,3 +163,4 @@ cython_debug/
 public_data/
 BlackSwan-code*
 sample_result_submission/
+scoring_output/
