@@ -1,5 +1,6 @@
 import sys
-sys.path.append('..')
+
+sys.path.append("..")
 import argparse
 import pathlib
 import os
@@ -11,26 +12,30 @@ root_dir_name = os.path.dirname(os.path.realpath(__file__))
 parser = argparse.ArgumentParser(
     description="This is script to generate data for the HEP competition."
 )
-parser.add_argument("--prediction", 
-                    "-p", 
-                    type=pathlib.Path,
-                    help="Prediction file location",
-                    default=os.path.join(root_dir_name, "sample_result_submission")
-                    ) 
-parser.add_argument("--output", 
-                    "-o", 
-                    help="Output file location",
-                    default=os.path.join(root_dir_name, "scoring_output")
-                    )
-parser.add_argument("--reference",
-                    "-r",
-                    help="Reference file location",
-                    default=os.path.join(root_dir_name, "reference_data")
-                    )
-parser.add_argument("--codabench",
-                    help="True when running on Codabench",
-                    action="store_true",
-)                     
+parser.add_argument(
+    "--prediction",
+    "-p",
+    type=pathlib.Path,
+    help="Prediction file location",
+    default=os.path.join(root_dir_name, "sample_result_submission"),
+)
+parser.add_argument(
+    "--output",
+    "-o",
+    help="Output file location",
+    default=os.path.join(root_dir_name, "scoring_output"),
+)
+parser.add_argument(
+    "--reference",
+    "-r",
+    help="Reference file location",
+    default=os.path.join(root_dir_name, "reference_data"),
+)
+parser.add_argument(
+    "--codabench",
+    help="True when running on Codabench",
+    action="store_true",
+)
 args = parser.parse_args()
 
 if not args.codabench:
@@ -42,25 +47,25 @@ else:
     prediction_dir = "/app/input/res"
     output_dir = "/app/output"
     reference_dir = "/app/input/ref"
-    program_dir = os.path.join(root_dir_name, "ingestion_program")    
+    program_dir = os.path.join(root_dir_name, "ingestion_program")
 
 sys.path.append(program_dir)
 
 settings_file = os.path.join(prediction_dir, "test_settings.json")
-
-if os.path.exists(settings_file):
+print(settings_file)
+try:
     with open(settings_file) as f:
         test_settings = json.load(f)
-else:
+except FileNotFoundError :
     settings_file = os.path.join(reference_dir, "settings", "data.json")
-    try : 
+    try:
         with open(settings_file) as f:
             test_settings = json.load(f)
-    except:
+    except FileNotFoundError:
         print("Settings file not found. Please provide the settings file.")
         sys.exit(1)
-        
-        
+
+
 from HiggsML.score import Scoring
 
 
@@ -71,13 +76,13 @@ scoring = Scoring()
 scoring.start_timer()
 
 # Load ingestion duration
-ingestion_duration_file = os.path.join(prediction_dir, "ingestion_duration.json")    
+ingestion_duration_file = os.path.join(prediction_dir, "ingestion_duration.json")
 scoring.load_ingestion_duration(ingestion_duration_file)
 
 print(prediction_dir)
 
 # Load ingestions results
-scoring.load_ingestion_results(prediction_dir)
+scoring.load_ingestion_results(prediction_dir,output_dir)
 
 # Compute Scores
 scoring.compute_scores(test_settings)

@@ -27,11 +27,11 @@ class NeuralNetwork:
         )
         self.scaler = StandardScaler()
 
-    def fit(self, train_data, labels, weights=None):
+    def fit(self, train_data, y_train, weights_train=None):
 
         self.scaler.fit_transform(train_data)
-        X_train_data = self.scaler.transform(train_data)
-        self.model.fit(X_train_data, labels, weights, epochs=1, batch_size=1000)
+        X_train = self.scaler.transform(train_data)
+        self.model.fit(X_train, y_train, sample_weight=weights_train, epochs=5, verbose=2)
 
     def predict(self, test_data):
         test_data = self.scaler.transform(test_data)
