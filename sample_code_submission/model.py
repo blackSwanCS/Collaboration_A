@@ -7,8 +7,9 @@ NN = False
 
 from statistical_analysis import calculate_saved_info, compute_mu
 from feature_engineering import feature_engineering
-from HiggsML.datasets import train_test_split
 import HiggsML.visualization as visualization
+import numpy as np
+import pandas as pd
 
 import os
 
@@ -59,35 +60,31 @@ class Model:
         Returns:
             None
         """
-        self.train_set = (
-            get_train_set  # train_set is a dictionary with data, labels and weights
+
+        indecies = np.arange(150_000)
+
+        np.random.shuffle(indecies)
+
+        train_indecies = indecies[:50_000]
+        holdout_indecies = indecies[50_000:100_000]
+        valid_indecies = indecies[100_000:]
+
+        self.training_set = get_train_set(selected_indices=train_indecies)
+
+        total_number = self.training_set["total_rows"]
+
+        self.training_set["weights"] = (
+            self.training_set["weights"] * total_number / 50_000
         )
         self.systematics = systematics
 
-        del self.train_set["settings"]
+        self.valid_set = get_train_set(selected_indices=valid_indecies)
+        self.valid_set["weights"] = self.valid_set["weights"] * total_number / 50_000
 
-        print("Full data: ", self.train_set["data"].shape)
-        print("Full Labels: ", self.train_set["labels"].shape)
-        print("Full Weights: ", self.train_set["weights"].shape)
-        print(
-            "sum_signal_weights: ",
-            self.train_set["weights"][self.train_set["labels"] == 1].sum(),
+        self.holdout_set = get_train_set(selected_indices=holdout_indecies)
+        self.holdout_set["weights"] = (
+            self.holdout_set["weights"] * total_number / 50_000
         )
-        print(
-            "sum_bkg_weights: ",
-            self.train_set["weights"][self.train_set["labels"] == 0].sum(),
-        )
-        print(" \n ")
-
-        self.training_set, self.valid_set = train_test_split(
-            data_set=self.train_set, test_size=0.3, random_state=42, reweight=True
-        )
-
-        # current_path = os.path.dirname(os.path.abspath(__file__))
-
-        # save_train_data(self.valid_set, current_path, output_format="parquet")
-
-        del self.train_set
 
         print("Training Data: ", self.training_set["data"].shape)
         print("Training Labels: ", self.training_set["labels"].shape)
@@ -112,12 +109,21 @@ class Model:
             "sum_bkg_weights: ",
             self.valid_set["weights"][self.valid_set["labels"] == 0].sum(),
         )
+        print()
+        print("Holdout Data: ", self.holdout_set["data"].shape)
+        print("Holdout Labels: ", self.holdout_set["labels"].shape)
+        print("Holdout Weights: ", self.holdout_set["weights"].shape)
+        print(
+            "sum_signal_weights: ",
+            self.holdout_set["weights"][self.holdout_set["labels"] == 1].sum(),
+        )
+        print(
+            "sum_bkg_weights: ",
+            self.holdout_set["weights"][self.holdout_set["labels"] == 0].sum(),
+        )
         print(" \n ")
 
-
-        self.training_set["data"] = feature_engineering(
-            self.training_set["data"]
-        )
+        self.training_set["data"] = feature_engineering(self.training_set["data"])
 
         print("Training Data: ", self.training_set["data"].shape)
 
@@ -169,11 +175,18 @@ class Model:
             balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
         )
 
-        self.saved_info = calculate_saved_info(self.model, self.training_set)
+        self.holdout_set["data"] = feature_engineering(self.holdout_set["data"])
+
+        self.saved_info = calculate_saved_info(self.model, self.holdout_set)
 
         train_score = self.model.predict(self.training_set["data"])
         train_results = compute_mu(
             train_score, self.training_set["weights"], self.saved_info
+        )
+
+        holdout_score = self.model.predict(self.holdout_set["data"])
+        holdout_results = compute_mu(
+            holdout_score, self.holdout_set["weights"], self.saved_info
         )
 
         self.valid_set["data"] = feature_engineering(self.valid_set["data"])
@@ -183,10 +196,15 @@ class Model:
         valid_results = compute_mu(
             valid_score, self.valid_set["weights"], self.saved_info
         )
+        
 
         print("Train Results: ")
         for key in train_results.keys():
             print("\t", key, " : ", train_results[key])
+            
+        print("Holdout Results: ")
+        for key in holdout_results.keys():
+            print("\t", key, " : ", holdout_results[key])        
 
         print("Valid Results: ")
         for key in valid_results.keys():
@@ -205,7 +223,7 @@ class Model:
         )
         valid_visualize.examine_dataset()
         valid_visualize.histogram_dataset()
-        valid_visualize.stacked_histogram("score",mu_hat = 100)
+        valid_visualize.stacked_histogram("score", mu_hat=100)
 
         visualization.roc_curve_wrapper(
             score=valid_score,

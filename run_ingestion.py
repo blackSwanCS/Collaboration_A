@@ -152,7 +152,7 @@ data.load_test_set()
 ingestion.predict_submission(test_settings)
 
 # compute result
-ingestion.compute_result()
+ingestion.process_results_dict()
 
 # save result
 ingestion.save_result(output_dir)

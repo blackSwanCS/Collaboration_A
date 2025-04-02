@@ -21,7 +21,7 @@ class BoostedDecisionTree:
         self.scaler.fit_transform(train_data)
 
         X_train_data = self.scaler.transform(train_data)
-        self.model.fit(X_train_data, labels, weights, eval_metric="logloss")
+        self.model.fit(X_train_data, labels, weights)
 
     def predict(self, test_data):
         test_data = self.scaler.transform(test_data)
