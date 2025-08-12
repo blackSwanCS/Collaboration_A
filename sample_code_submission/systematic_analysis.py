@@ -383,8 +383,9 @@ class SystModel:
         plus_scores = holdout_data_sets["plus"]["data"]["score"][holdout_data_sets["plus"]["labels"] == 1].values
         minus_scores = holdout_data_sets["minus"]["data"]["score"][holdout_data_sets["minus"]["labels"] == 1].values
         
-        plot_three_score_distributions(nominal_scores, plus_scores, minus_scores, bins=50, range=(0,1), save_path="score_distributions.png")
-        plot_three_systematics_calibration(
+        ptsd=plot_three_score_distributions(nominal_scores, plus_scores, minus_scores, bins=50, range=(0,1), save_path="score_distributions.png")
+        mlflow.log_artifact(ptsd)
+        ptsc=plot_three_systematics_calibration(
             nominal_scores = holdout_data_sets["plus"]["data"]["score"].values,
             nominal_labels = holdout_data_sets["plus"]["labels"].values,
             nominal_weights = holdout_data_sets["plus"]["weights"].values,
@@ -398,7 +399,8 @@ class SystModel:
             minus_weights = holdout_data_sets["minus"]["weights"].values,
             bins=50,
             save_path=f"{current_dir}/plots/systematics_score_comparison.png"
-)
+            )
+        mlflow.log_artifact(ptsc)
 
         holdout_set_norm = self.systematics(holdout_set)
 
