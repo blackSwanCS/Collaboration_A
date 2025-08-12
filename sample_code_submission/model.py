@@ -2,8 +2,6 @@
 # Dummy Sample Submission
 # ------------------------------
 
-BDT = True
-NN = False
 
 from statistical_analysis import calculate_saved_info, compute_mu
 import numpy as np
@@ -13,7 +11,18 @@ import mlflow.keras
 import matplotlib.pyplot as plt
 import os
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+print({script_dir})
+# Define the path to the 'mlruns' folder relative to the script
+mlflow_path = os.path.join(script_dir, "mlruns")
+
+# Set the MLflow tracking URI
+os.environ['MLFLOW_TRACKING_URI'] = f"file:{mlflow_path}"
+mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+
+print("MLflow tracking URI set to:", os.environ['MLFLOW_TRACKING_URI'])
+
+# mlflow.set_tracking_uri("http://127.0.0.1:5000")
 from systematic_analysis import SystModel
 import logging
 
@@ -100,12 +109,28 @@ class Model:
         }
 
         # Flag indicating whether the model has been trained yet.
+        # will track whether fit() has been called yet.
         self.istrained = False
         self.preselection = DummyPreselection()
 
         # Frees up memory — training_df is no longer needed after its contents were split and stored.
         del training_df
 
+        '''
+        It's a data transformation utility that simulates real-world measurement uncertainties in high-energy physics — 
+        like when a detector mismeasures the energy of a tau or a jet. In particular, this function:
+
+        - Perturbs specific physics features like PRI_had_pt, PRI_jet_leading_pt, PRI_met, etc.
+
+        - Adjusts weights for specific background processes (like ttbar or diboson)
+
+        - Recomputes derived features (DERs) after those changes
+
+        - Returns the modified dataset, which will later be used to train models under systematic variations (like the ±10% variations in SystModel)
+        
+        So,
+        Simulates real-world detector biases (energy mismeasurement, MET noise, etc.) , Reweights specific background classes ,Keeps the data structure consistent , Is a core part of evaluating model robustness to uncertainties
+        '''
         self.systematics = systematics
 
         print("Training Data: ", self.training_set["data"].shape)
@@ -197,9 +222,9 @@ class Model:
         print(f" Model is { self.name}")
 
     def fit(self):
-        mlflow.set_experiment("NN_experiments")
+        mlflow.set_experiment("BDT_experiments_cca")
         # run_name = f"NN_epochs{self.nn_params['epochs']}_bs{self.nn_params['batch_size']} - withSys - with all features"
-        run_name = f"NN - all featurse"
+        run_name = f"BDT-all featurse-1"
         with mlflow.start_run(run_name=run_name):
             # Log model type
             mlflow.log_param("model_type", self.name)
@@ -210,7 +235,15 @@ class Model:
                     mlflow.log_param(k, v)
 
             # we balance classes here
-            # Balance classes
+            '''
+            If class 1 is underrepresented, its weights are scaled up to match class 0.
+            This ensures the model doesn’t get biased toward the majority class.
+            
+            For whichever class has the smaller total weight, its sample weights get multiplied by a factor > 1.
+            The larger class might get factor = 1 (if it already had the maximum sum).
+            The number of events stays the same, only their importance in training changes.
+            This means the training algorithm sees both classes as equally important in terms of total contribution to the loss.
+            '''
             balanced_set = self.training_set.copy()
             weights_train = self.training_set["weights"].copy()
             train_labels = self.training_set["labels"].copy()
@@ -219,7 +252,7 @@ class Model:
                 weights_train[train_labels == 1].sum(),
             )
 
-            for i in range(len(class_weights_train)):
+            for i in  [0, 1]:
                 weights_train[train_labels == i] *= (
                     max(class_weights_train) / class_weights_train[i]
                 )
@@ -228,6 +261,9 @@ class Model:
 
             # fitting out model (eg , BDT or NN) with the balanced data
             # Train model
+            '''
+            The model (NN or BDT) is trained using: Balanced data , Labels , Updated sample weights
+            '''
             self.model.fit(
                 balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
             )
@@ -235,6 +271,14 @@ class Model:
             # Apply systematics
 
             # Save info
+            '''
+            This function takes a trained model and a holdout set (validation/test data), applies the model to the data, and calculates two key values:
+            - γ (gamma): sum of weights for true positives (Higgs correctly classified)
+
+            - β (beta): sum of weights for false positives (non-Higgs misclassified as Higgs)
+
+            These are stored in a dictionary called saved_info and later used in physics metrics (e.g. mû and Δmû).
+            '''
             self.saved_info = calculate_saved_info(self.model, self.holdout_set)
 
             # --- Scores
@@ -244,23 +288,19 @@ class Model:
             from sklearn.metrics import accuracy_score
 
             # After training, calculate accuracy manually on the full training set
-            train_preds = (self.model.predict(self.training_set["data"]) > 0.5).astype(
-                int
-            )
+            train_preds = (train_score > 0.5).astype(int)
             train_labels = self.training_set["labels"]
 
             train_acc = accuracy_score(train_labels, train_preds)
             print(f"Final Train Accuracy: {train_acc:.4f}")
             mlflow.log_metric("final_train_accuracy", train_acc)
 
-            valid_preds = (self.model.predict(self.valid_set["data"]) > 0.5).astype(int)
+            valid_preds = (valid_score > 0.5).astype(int)
             valid_labels = self.valid_set["labels"]
             valid_acc = accuracy_score(valid_labels, valid_preds)
             mlflow.log_metric("final_valid_accuracy", valid_acc)
 
-            holdout_preds = (self.model.predict(self.holdout_set["data"]) > 0.5).astype(
-                int
-            )
+            holdout_preds = (holdout_score > 0.5).astype(int)
             holdout_labels = self.holdout_set["labels"]
             holdout_acc = accuracy_score(holdout_labels, holdout_preds)
             mlflow.log_metric("final_holdout_accuracy", holdout_acc)
@@ -279,21 +319,23 @@ class Model:
             # --- Print + Log Metrics
             print("Train Results:")
             for key, value in train_results.items():
-                print("\t", key, " : ", value)
+                print(f"train_{key}", value)
                 mlflow.log_metric(f"train_{key}", value)
 
             print("Holdout Results:")
             for key, value in holdout_results.items():
-                print("\t", key, " : ", value)
+                print(f"holdout_{key}", value)
                 mlflow.log_metric(f"holdout_{key}", value)
 
             print("Valid Results:")
             for key, value in valid_results.items():
-                print("\t", key, " : ", value)
+                print(f"valid_{key}", value)
                 mlflow.log_metric(f"valid_{key}", value)
 
             # --- Save score column
             self.valid_set["data"]["score"] = valid_score
+            self.training_set["data"]["score"] = train_score
+            self.holdout_set["data"]["score"] = holdout_score
 
             # --- Plots
             from utils import (
@@ -312,14 +354,32 @@ class Model:
             Helps check how well your model separates classes.
             """
             # Histogram
-            hist_path = histogram_dataset(
+            hist_path1 = histogram_dataset(
                 self.valid_set["data"],
                 self.valid_set["labels"],
                 self.valid_set["weights"],
                 columns=["score"],
-                save_path=f"{run_dir}/main_histogram.png",
+                save_path=f"{run_dir}/main_histogram_valid.png",
             )
-            mlflow.log_artifact(hist_path)
+            mlflow.log_artifact(hist_path1)
+            
+            hist_path2 = histogram_dataset(
+                self.training_set["data"],
+                self.training_set["labels"],
+                self.training_set["weights"],
+                columns=["score"],
+                save_path=f"{run_dir}/main_histogram_train.png",
+            )
+            mlflow.log_artifact(hist_path2)
+            
+            hist_path3 = histogram_dataset(
+                self.holdout_set["data"],
+                self.holdout_set["labels"],
+                self.holdout_set["weights"],
+                columns=["score"],
+                save_path=f"{run_dir}/main_histogram_holdout.png",
+            )
+            mlflow.log_artifact(hist_path3)
 
             # Stacked histogram
             stacked_path = stacked_histogram(
@@ -341,9 +401,6 @@ class Model:
                 save_path=f"{run_dir}/main_roc_curve.png",
             )
             mlflow.log_artifact(roc_path)
-            self.valid_set["data"]["score"] = valid_score
-            self.training_set["data"]["score"] = train_score
-            self.holdout_set["data"]["score"] = holdout_score
 
             labels_train = self.training_set["labels"].values
             print("Unique labels:", np.unique(labels_train))
@@ -358,6 +415,26 @@ class Model:
 
             print(df.groupby("label").describe())
 
+            '''
+            
+            It shows how well the model’s predicted scores correspond to the true likelihood of an event being signal (Higgs) vs. background in the dataset.
+
+            The model assigns each event a score (e.g., between 0 and 1), estimating how “signal-like” it is.
+
+            The calibration curve bins events by their predicted score.
+
+            For each bin, it calculates the actual fraction of signal events (weighted by event importance) compared to total events.
+
+            It plots this fraction (y-axis) against the average predicted score in that bin (x-axis).
+
+            If your model is perfectly calibrated, the predicted probability matches the true probability, so points lie on the diagonal y=x.
+
+            data_den = training_set scores for background (label 0)
+            data_num = training_set scores for signal (label 1)
+            data_denH = holdout scores for background
+            data_numH = holdout scores for signal
+
+            '''
             calib_path = plot_calibration_curve(
                 data_den=self.training_set["data"]["score"].values[
                     self.training_set["labels"].values == 0
@@ -392,8 +469,11 @@ class Model:
             mlflow.log_artifact(calib_path)
             from IPython.display import Image, display
 
-            display(Image(filename="nn_architecture.png"))
-            mlflow.log_artifact("nn_architecture.png")
+            # current_dir = os.path.dirname(__file__)
+            # image_path = os.path.join(current_dir, "nn_architecture.png")
+            # display(Image(filename=image_path))    
+            # mlflow.log_artifact(image_path)
+            # print({image_path})
 
             if self.name == "NN" and hasattr(self.model, "history"):
                 history = self.model.history
@@ -419,6 +499,7 @@ class Model:
 
             for syst in systs:
                 logger.info("Training syst model for %s", syst)
+                print("Training syst model for", syst)
                 self.syst_model[syst] = SystModel(
                     NP=syst,
                     systematics=self.systematics,
@@ -455,6 +536,7 @@ class Model:
                 - p16
                 - p84
         """
+        stop
 
         test_data = test_set["data"]
         test_weights = test_set["weights"]

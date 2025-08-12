@@ -8,7 +8,7 @@ import os
 import pandas as pd
 from iminuit import Minuit
 import logging
-from utils import plot_calibration_curve, roc_curve_wrapper, plot_score_distributions
+from utils import plot_calibration_curve, roc_curve_wrapper, plot_score_distributions , plot_three_score_distributions , plot_three_systematics_calibration
 import mlflow
 
 
@@ -31,10 +31,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # XGBOOST = True
-XGBOOST = False
+XGBOOST = True
 
 # TENSORFLOW = not XGBOOST
-TENSORFLOW = True
+TENSORFLOW = False
 
 
 current_dir = os.path.dirname(__file__)
@@ -168,12 +168,17 @@ class SystModel:
             ],
             weight_numH=holdout_set["weights"][holdout_set["labels"].values == 1],
             epsilon=1.0e-20,
-            label="Calibration Curve",
+            label=f"Calibration Curve , {category} model",
             score_range="standard",
             save=f"{run_dir}/calibration_curve_{category}.pdf",
         )
         mlflow.log_artifact(calib_path)
         print(calib_path)
+        '''
+        The density_ratio function computes a value for each event score that can be interpreted as a reweighting factor based on the score.
+        It essentially transforms the model’s predicted score into a ratio that tells how to reweight signal events so that their distribution matches some reference 
+        (e.g., background or systematic shifted distribution).
+        '''
         density_ratio = self.density_ratio(score)
 
         # ROC curve
@@ -223,7 +228,8 @@ class SystModel:
             None
         """
         holdout_data_sets = self.systematics_datasets(holdout_set)
-
+        
+        #  Gx is a weight ratio
         self.Gx = {}
 
         for key in holdout_data_sets.keys():
@@ -232,26 +238,48 @@ class SystModel:
                 holdout_data_sets[key],
                 threshold=0.8,
             )
-
-            self.Gx[key] = np.sum(
-                holdout_data_set["weights"][holdout_data_set["labels"] == 1]
+            
+            # Gx = SUM OF SIGNALS weights / SUM OF BACKGROUNDS weights
+            self.Gx[key] = np.sum(holdout_data_set["weights"][holdout_data_set["labels"] == 1]
             ) / np.sum(holdout_data_set["weights"][holdout_data_set["labels"] == 0])
 
             logger.debug("Gx %s", self.Gx[key])
             logger.debug("Gx shape %s", self.Gx[key].shape)
+            print("Gx %s", self.Gx[key])
+            print("Gx shape %s", self.Gx[key].shape)
 
         if self.norm_syst:
             return
 
+        '''
+        If the model isn’t already trained:
+        Build "plus" and "minus" training datasets.
+        Balance event weights so the classifier sees equal effective class size
+        '''
         if not self.istrained:
 
             if training_set is None:
                 logger.error("Training set not provided")
                 raise ValueError("Training set not provided")
+            '''
+            training_data_sets=
+            {
+                "plus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only plus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                },
+                "minus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only minus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                }
+            }
 
+            '''
             training_data_sets = self.systematics_datasets(training_set)
-
-            for key in training_data_sets.keys():
+            # balancing weights same as in the model.py 
+            for key in training_data_sets.keys(): # key = "plus" or "minus"
                 balanced_set = training_data_sets[key].copy()
                 weights_train = training_data_sets[key]["weights"].copy()
                 train_labels = training_data_sets[key]["labels"].copy()
@@ -283,7 +311,24 @@ class SystModel:
 
         # read and clean holdout set
 
-        for key in holdout_data_sets.keys():
+        '''
+            holdout_data_sets=
+            {
+                "plus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only plus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                },
+                "minus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only minus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                }
+            }
+
+            '''
+            
+        for key in holdout_data_sets.keys(): # "plus" and "minus"
 
             holdout_score_temp = self.models[key].predict(
                 holdout_data_sets[key]["data"],
@@ -293,6 +338,28 @@ class SystModel:
             training_data_sets[key]["data"]["score"] = self.models[key].predict(
                 training_data_sets[key]["data"]
             )
+            '''
+            So in this case of calibration curve --> , “num” and “den” are two variations of the dataset:
+            For key="plus":
+                num = +systematic variation
+                den = nominal baseline
+            For key="minus":
+                num = −systematic variation
+                den = nominal baseline
+                
+            calibration curve means : Given the classifier’s predicted score, 
+            how often does the event really come from the shifted sample versus the nominal sample?
+            
+            and for ROC:
+            X-axis: False Positive Rate (shifted events classified as nominal).
+            Y-axis: True Positive Rate (shifted events correctly identified as shifted).
+
+            for reweighting :
+            
+            This function is designed to check how well the model’s density ratio reweights the signal distribution to match the background distribution for each feature/variable in the dataset.
+
+
+            '''
             self.analyze(
                 score=holdout_score_temp,
                 data=holdout_data_sets[key],
@@ -301,6 +368,7 @@ class SystModel:
                 training_set=training_data_sets[key],
                 holdout_set=holdout_data_sets[key],
             )
+            
             # test
             print(
                 training_data_sets[key]["data"].shape,
@@ -310,6 +378,27 @@ class SystModel:
                 holdout_data_sets[key]["data"].shape,
                 holdout_data_sets[key]["data"].columns,
             )
+            
+        nominal_scores = holdout_data_sets["plus"]["data"]["score"][holdout_data_sets["plus"]["labels"] == 0].values
+        plus_scores = holdout_data_sets["plus"]["data"]["score"][holdout_data_sets["plus"]["labels"] == 1].values
+        minus_scores = holdout_data_sets["minus"]["data"]["score"][holdout_data_sets["minus"]["labels"] == 1].values
+        
+        plot_three_score_distributions(nominal_scores, plus_scores, minus_scores, bins=50, range=(0,1), save_path="score_distributions.png")
+        plot_three_systematics_calibration(
+            nominal_scores = holdout_data_sets["plus"]["data"]["score"].values,
+            nominal_labels = holdout_data_sets["plus"]["labels"].values,
+            nominal_weights = holdout_data_sets["plus"]["weights"].values,
+
+            plus_scores = holdout_data_sets["plus"]["data"]["score"].values,
+            plus_labels = holdout_data_sets["plus"]["labels"].values,
+            plus_weights = holdout_data_sets["plus"]["weights"].values,
+
+            minus_scores = holdout_data_sets["minus"]["data"]["score"].values,
+            minus_labels = holdout_data_sets["minus"]["labels"].values,
+            minus_weights = holdout_data_sets["minus"]["weights"].values,
+            bins=50,
+            save_path=f"{current_dir}/plots/systematics_score_comparison.png"
+)
 
         holdout_set_norm = self.systematics(holdout_set)
 
@@ -446,6 +535,7 @@ class SystModel:
         #     "DER_met_phi_centrality",
         # ]
 
+        # all columns
         self.columns = [
             "PRI_lep_pt",
             "PRI_lep_eta",
@@ -485,7 +575,8 @@ class SystModel:
             "ttbar_scale": 1.0,
             "diboson_scale": 1.0,
         }
-
+        indiviual_datasets={}
+        
         syst_setting = syst_fixed_setting.copy()
 
         syst_setting[self.NP] = 1.0
@@ -493,24 +584,26 @@ class SystModel:
             dataset.copy(), dopostprocess=True, **syst_fixed_setting
         )
 
+        # Assigns label 0 to all nominal events (important for classification).
         df_nom = dataset_nom["data"]
-        df_nom["labels"] = np.zeros(len(df_nom))
+        df_nom["labels"] = np.zeros(len(df_nom)) # Nominal = class 0
         df_nom["weights"] = dataset_nom["weights"]  # <-- Add this line
+        indiviual_datasets["nominal"] = df_nom
 
-        print(df_nom["weights"].sum(), "111sum of the weights of df nom")
+        print(df_nom["weights"].sum(), "sum of the weights of df nominal")
+        print("length of df of the nominal" , len(df_nom))
 
         del dataset_nom
 
         data_sets = {}
-
         if self.NP in syst_setting.keys():
 
-            for syst_value in self.systematics_values:
+            for syst_value in self.systematics_values:  # [1.1, 0.9]
                 syst_setting[self.NP] = syst_value
 
                 name = "minus" if syst_value < syst_fixed_setting[self.NP] else "plus"
                 print("syst_value", syst_value)
-                print(self.NP, " :Hello tis is NP")
+                print(self.NP, " :Hello this is NP")
                 print("this is the shifted for the ", name)
                 print(syst_fixed_setting, "syst_fixed_setting")
                 print(syst_setting, "syst_setting")
@@ -520,19 +613,20 @@ class SystModel:
                 )
                 df_syst = dataset_syst["data"]
 
-                df_syst["labels"] = np.ones(len(df_syst))
+                df_syst["labels"] = np.ones(len(df_syst)) # Shifted = class 1
 
                 df_syst["weights"] = dataset_syst["weights"]  # <-- Add this line
 
                 print(df_syst["weights"].sum(), "sum of the weights of df sys")
                 print(df_nom["weights"].sum(), "sum of the weights of df nom")
 
-                print(df_syst["weights"].count(), "sum of the weights of df sys")
-                print(df_nom["weights"].count(), "sum of the weights of df nom")
-
+                print(df_syst["weights"].count(), "length of the weights of df sys")
+                print(df_nom["weights"].count(), "length of the weights of df nom")
+                
+                # Merge nominal + shifted for binary classification
                 df = pd.concat([df_nom, df_syst])
 
-                df = df.sample(frac=1)
+                df = df.sample(frac=1) # shuffle rows
 
                 labels = df.pop("labels")
                 df.pop("score")
@@ -541,12 +635,7 @@ class SystModel:
                 df = df[self.columns]
 
                 """
-                {
-                "labels": pd.Series,         # shape: (5000,)
-                "weights": pd.Series,        # shape: (5000,)
-                "detailed_labels": pd.Series, # shape: (5000,)
-                "data": pd.DataFrame         # shape: (5000, 28)
-                }
+
                 """
 
                 data_sets[f"{name}"] = {
