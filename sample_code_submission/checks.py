@@ -190,10 +190,10 @@ def check_calibration(
 
     # Adjust layout and display the plot
     plt.tight_layout()
-    plt.show()
-
     plt.savefig(filename)
+    plt.show()
     plt.close()
+    return filename
 
 
 def check_reweighting(density_ratio, data_set, name="", num=25):
@@ -236,23 +236,23 @@ def check_reweighting(density_ratio, data_set, name="", num=25):
         edges = np.linspace(xmin, xmax, num=num + 1)
         histrange = (xmin, xmax)
 
-        '''
+        """
         h_S: histogram of signal with original weights.
 
         h_X: histogram of background with original weights.
 
         h_S_rw: histogram of signal with reweighted weights.
-        '''
+        """
         h_S, h_S_err = fill_histograms_wError(sig_field, weights_sig, edges, histrange)
         h_X, h_X_err = fill_histograms_wError(bkg_field, weights_bkg, edges, histrange)
-        '''
+        """
         The goal of reweighting is to make the signal distribution look more like the background (or to correct for systematic shifts).
         The density_ratio tells you how much each signal event should be up- or down-weighted.
         By multiplying the original signal weights by this ratio, you shift the weighted distribution of signal events.
         In practice:
         Signal events with scores closer to background-like will have larger density ratios (since (1-score)/score is bigger if score is small), so their weight will increase.
         ​Signal events with scores confidently signal-like (score near 1) get smaller density ratios, so their weight decreases.
-        '''
+        """
         h_S_rw, h_S_rw_err = fill_histograms_wError(
             sig_field, weights_reweighted, edges, histrange
         )
