@@ -12,8 +12,9 @@ from utils import (
     plot_calibration_curve,
     roc_curve_wrapper,
     plot_score_distributions,
-    plot_three_score_distributions,
+    plot_two_score_distributions,
     plot_three_systematics_calibration,
+    plot_score_distribution_for_triDataset,
 )
 import mlflow
 
@@ -28,10 +29,12 @@ log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
 logging.basicConfig(
-    level=getattr(
-        logging, log_level, logging.INFO
-    ),  # Fallback to INFO if the level is invalid
-    format="%(asctime)s - %(name)-20s - %(levelname) -8s - %(message)s",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),  # Write logs to file
+        logging.StreamHandler(),  # Also print logs to console
+    ],
 )
 
 logger = logging.getLogger(__name__)
@@ -65,10 +68,28 @@ class SystModel:
         if XGBOOST == True:
             from boosted_decision_tree import BoostedDecisionTree
 
+            # self.models = {
+            #     "plus": BoostedDecisionTree(name=f"{self.NP}_plus"),
+            #     "minus": BoostedDecisionTree(name=f"{self.NP}_minus"),
+            # }
+
             self.models = {
-                "plus": BoostedDecisionTree(name=f"{self.NP}_plus"),
-                "minus": BoostedDecisionTree(name=f"{self.NP}_minus"),
+                "plus": BoostedDecisionTree(
+                    name=f"{self.NP}_plus",
+                    use_calibration=True,  # replaces .calibrate = True
+                    calibration_method="isotonic",  # or "sigmoid" / "isotonic"
+                    cv_calibration=True,  # optional: use cross-validated calibration
+                    calibration_split=0.2,  # fraction of training data reserved for calibration
+                ),
+                "minus": BoostedDecisionTree(
+                    name=f"{self.NP}_minus",
+                    use_calibration=True,
+                    calibration_method="isotonic",
+                    cv_calibration=True,
+                    calibration_split=0.2,
+                ),
             }
+
             self.name = "BDT"
 
             self.models["plus"].calibrate = True
@@ -218,7 +239,7 @@ class SystModel:
         )
         mlflow.log_artifact(score_dist_path)
 
-    def fit(self, holdout_set, training_set=None):
+    def fit(self, holdout_set, training_set=None, validation_set=None):
         """
         Trains the model.
 
@@ -241,10 +262,11 @@ class SystModel:
 
         for key in holdout_data_sets.keys():
 
-            holdout_data_set = self.preselection.apply_pre_selection(
-                holdout_data_sets[key],
-                threshold=0.8,
-            )
+            # holdout_data_set = self.preselection.apply_pre_selection(
+            #     holdout_data_sets[key],
+            #     threshold=0.8,
+            # )
+            holdout_data_set = holdout_data_sets[key]
 
             # Gx = SUM OF SIGNALS weights / SUM OF BACKGROUNDS weights
             self.Gx[key] = np.sum(
@@ -295,7 +317,6 @@ class SystModel:
                     weights_train[train_labels == 0].sum(),
                     weights_train[train_labels == 1].sum(),
                 )
-
                 for i in range(len(class_weights_train)):
                     weights_train[train_labels == i] *= (
                         max(class_weights_train) / class_weights_train[i]
@@ -309,9 +330,9 @@ class SystModel:
                 print(len(weights_train[train_labels == 0]), f"label = 0 {key}")
 
                 self.models[key].fit(
-                    balanced_set["data"],
-                    balanced_set["labels"],
-                    balanced_set["weights"],
+                    training_data_sets[key]["data"],
+                    training_data_sets[key]["labels"],
+                    training_data_sets[key]["weights"],
                 )
 
                 # self.models[key].save(self.model_dir)
@@ -386,40 +407,58 @@ class SystModel:
                 holdout_data_sets[key]["data"].shape,
                 holdout_data_sets[key]["data"].columns,
             )
+            nominal_scores = holdout_data_sets[key]["data"]["score"][
+                holdout_data_sets[key]["labels"] == 0
+            ].values
+            sys_scores = holdout_data_sets[key]["data"]["score"][
+                holdout_data_sets[key]["labels"] == 1
+            ].values
+            ptsd = plot_two_score_distributions(
+                nominal_scores,
+                sys_scores,
+                save_path=f"nominal&{key}-score_distribution.png",
+                type=f"{key}",
+            )
+            mlflow.log_artifact(ptsd)
 
-        nominal_scores = holdout_data_sets["plus"]["data"]["score"][
-            holdout_data_sets["plus"]["labels"] == 0
-        ].values
-        plus_scores = holdout_data_sets["plus"]["data"]["score"][
-            holdout_data_sets["plus"]["labels"] == 1
-        ].values
-        minus_scores = holdout_data_sets["minus"]["data"]["score"][
-            holdout_data_sets["minus"]["labels"] == 1
-        ].values
+        drva = self.plot_density_ratio_vs_alpha(holdout_set, save_path=None)
+        mlflow.log_artifact(drva)
 
-        ptsd = plot_three_score_distributions(
-            nominal_scores,
-            plus_scores,
-            minus_scores,
-            bins=50,
-            range=(0, 1),
-            save_path="score_distributions.png",
-        )
-        mlflow.log_artifact(ptsd)
-        ptsc = plot_three_systematics_calibration(
-            nominal_scores=holdout_data_sets["plus"]["data"]["score"].values,
-            nominal_labels=holdout_data_sets["plus"]["labels"].values,
-            nominal_weights=holdout_data_sets["plus"]["weights"].values,
-            plus_scores=holdout_data_sets["plus"]["data"]["score"].values,
-            plus_labels=holdout_data_sets["plus"]["labels"].values,
-            plus_weights=holdout_data_sets["plus"]["weights"].values,
-            minus_scores=holdout_data_sets["minus"]["data"]["score"].values,
-            minus_labels=holdout_data_sets["minus"]["labels"].values,
-            minus_weights=holdout_data_sets["minus"]["weights"].values,
-            bins=50,
-            save_path=f"{current_dir}/plots/systematics_score_comparison.png",
-        )
-        mlflow.log_artifact(ptsc)
+        tri_holdout = self.systematics_datasets2(holdout_set)
+        for key in self.models.keys():
+            tri_scores = self.models[key].predict(tri_holdout["data"])
+            scores_nominal = tri_scores[tri_holdout["labels"] == 0]
+            scores_plus = tri_scores[tri_holdout["labels"] == 1]
+            scores_minus = tri_scores[tri_holdout["labels"] == -1]
+
+            tri_holdout_df = tri_holdout["data"].copy()
+            tri_holdout_df["label"] = tri_holdout["labels"].values
+            tri_holdout_df["weight"] = tri_holdout["weights"].values
+            tri_holdout_df[f"score_{key}Model"] = tri_scores
+
+            psdftd = plot_score_distribution_for_triDataset(
+                scores_nominal,
+                scores_plus,
+                scores_minus,
+                save_path=f"nominal & Plus & minus-score_distribution-for {key}-Model.png",
+                type=f"{key}",
+            )
+            mlflow.log_artifact(psdftd)
+
+        # ptsc = plot_three_systematics_calibration(
+        #     nominal_scores=holdout_data_sets["plus"]["data"]["score"].values,
+        #     nominal_labels=holdout_data_sets["plus"]["labels"].values,
+        #     nominal_weights=holdout_data_sets["plus"]["weights"].values,
+        #     plus_scores=holdout_data_sets["plus"]["data"]["score"].values,
+        #     plus_labels=holdout_data_sets["plus"]["labels"].values,
+        #     plus_weights=holdout_data_sets["plus"]["weights"].values,
+        #     minus_scores=holdout_data_sets["minus"]["data"]["score"].values,
+        #     minus_labels=holdout_data_sets["minus"]["labels"].values,
+        #     minus_weights=holdout_data_sets["minus"]["weights"].values,
+        #     bins=50,
+        #     save_path=f"{current_dir}/plots/systematics_score_comparison.png",
+        # )
+        # mlflow.log_artifact(ptsc)
 
         holdout_set_norm = self.systematics(holdout_set)
 
@@ -440,6 +479,8 @@ class SystModel:
 
         logger.debug("Gx_plus %s", Gx_plus)
         logger.debug("Gx_minus %s", Gx_minus)
+        print("Gx_plus %s", Gx_plus)
+        print("Gx_minus %s", Gx_minus)
 
         gx_plus = self.predict(preselected_holdout)["plus"]
         gx_minus = self.predict(preselected_holdout)["minus"]
@@ -455,14 +496,56 @@ class SystModel:
         logger.debug("pdf_holdout_plus %s", pdf_holdout_plus)
         logger.debug("pdf_holdout_minus %s", pdf_holdout_minus)
 
+        # simple quadratic
+
     def syst_fun(self, coeff, alpha):
         return 1 + coeff[0] * alpha + coeff[1] * alpha**2
+
+    def plot_density_ratio_vs_alpha(self, dataset, save_path=None):
+        data_sets = self.systematics_datasets(dataset)
+        scores_plus, density_ratios_plus = self.predict_model(data_sets["plus"])
+        scores_minus, density_ratios_minus = self.predict_model(data_sets["minus"])
+        self.fit_extropolate(density_ratios_plus)  # fit for "plus"
+        coeff_g_plus = self.coeff_g
+        coeff_G_plus = self.coeff_G
+
+        self.fit_extropolate(density_ratios_minus)  # fit for "minus"
+        coeff_g_minus = self.coeff_g
+        coeff_G_minus = self.coeff_G
+
+        alphas = np.linspace(0.9, 1.1, 50)
+        density_plus_curve = np.array([self.syst_fun(coeff_g_plus, a) for a in alphas])
+        density_minus_curve = np.array(
+            [self.syst_fun(coeff_g_minus, a) for a in alphas]
+        )
+
+        plt.figure(figsize=(8, 5))
+        plt.plot(alphas, density_plus_curve, label="Plus variation", color="blue")
+        plt.plot(alphas, density_minus_curve, label="Minus variation", color="red")
+        plt.xlabel("Alpha")
+        plt.ylabel("Density ratio")
+        plt.title("Density Ratio vs Alpha")
+        plt.legend()
+        plt.grid(True)
+        run_dir = "mlruns_temp"
+        os.makedirs(run_dir, exist_ok=True)
+        save_path = f"{run_dir}/ratio_vs_alpha_graph.png"
+        plt.savefig(save_path)
+        plt.show()
+        plt.close()
+        return save_path
 
     def fit_extropolate(self, density_ratios):
 
         # creates a 3d polynomial fit for the density ratios, which depend on alpha
         # the fit is used to extrapolate the density ratios to alpha = 1 + 0.01 and alpha = 1 - 0.01
+        """
+        self.syst_fun(coeff, α_plus) is a single scalar
+        Subtracting that scalar from a vector (e.g. density_ratios["plus"]) creates a residual vector;
+        squaring and summing gives a standard sum of squared errors (SSE).
+        """
 
+        # cost= (error at plus)^2 + (error at minus)^2
         def cost_g(coeff_0, coeff_1):
             coeff = [coeff_0, coeff_1]
             return np.sum(
@@ -478,11 +561,14 @@ class SystModel:
                 ** 2
             )
 
+        # Create an optimizer to minimize the cost function cost_g starting from 0,0.
         m = Minuit(cost_g, coeff_0=0, coeff_1=0)
+        # Run the optimizer to find the values of coeff_0 and coeff_1 that make cost_g as small as possible.
         m.migrad()
-
+        # After this, self.coeff_Gg contains the fitted coefficients for your quadratic systematic model.
         self.coeff_g = [m.values["coeff_0"], m.values["coeff_1"]]
 
+        # Gx = SUM OF SIGNALS weights / SUM OF BACKGROUNDS weights
         def cost_G(coeff_0, coeff_1):
             coeff = [coeff_0, coeff_1]
             return np.sum(
@@ -492,9 +578,30 @@ class SystModel:
                 ** 2
             )
 
-        m = Minuit(cost_G, coeff_0=0, coeff_1=0)
-        m.migrad()
+        """
+        It’s a numerical minimizer designed for scientific problems, widely used in physics.
+        Minuit finds the parameter values that minimize it.
+        
+        cost_G is the function to minimize (in your case, the sum of squared differences between the quadratic model and observed data at the plus/minus anchors).
 
+        coeff_0=0, coeff_1=0 are the initial guesses for the parameters coeff_0 and coeff_1.
+
+        Think of this as telling Minuit: “Start here (0,0) and try to find the best coeff_0 and coeff_1 that make cost_G as small as possible.”
+        """
+        m = Minuit(cost_G, coeff_0=0, coeff_1=0)
+
+        """
+        runs the MIGRAD algorithm, which is:
+
+        A quasi-Newton optimizer.
+
+        Uses gradients (or approximates them numerically) to iteratively find the minimum of the cost function.
+        """
+        m.migrad()
+        """
+        m.values contains the optimized parameters found by MIGRAD.
+        So now self.coeff_G stores the best-fit coefficients for your quadratic model
+        """
         self.coeff_G = [m.values["coeff_0"], m.values["coeff_1"]]
 
     def pdf(self, alpha, g_x_plus, g_x_minus):
@@ -542,51 +649,51 @@ class SystModel:
             dict: A dictionary containing the dataset with systematics.
         """
 
-        # self.columns = [
-        #     "PRI_had_pt",
-        #     "PRI_met",
-        #     "PRI_met_phi",
-        #     "DER_mass_transverse_met_lep",
-        #     "DER_mass_vis",
-        #     "DER_pt_h",
-        #     "DER_deltar_had_lep",
-        #     "DER_pt_tot",
-        #     "DER_sum_pt",
-        #     "DER_pt_ratio_lep_had",
-        #     "DER_met_phi_centrality",
-        # ]
-
-        # all columns
         self.columns = [
-            "PRI_lep_pt",
-            "PRI_lep_eta",
-            "PRI_lep_phi",
             "PRI_had_pt",
-            "PRI_had_eta",
-            "PRI_had_phi",
-            "PRI_jet_leading_pt",
-            "PRI_jet_leading_eta",
-            "PRI_jet_leading_phi",
-            "PRI_jet_subleading_pt",
-            "PRI_jet_subleading_eta",
-            "PRI_jet_subleading_phi",
-            "PRI_n_jets",
-            "PRI_jet_all_pt",
             "PRI_met",
             "PRI_met_phi",
             "DER_mass_transverse_met_lep",
             "DER_mass_vis",
             "DER_pt_h",
-            "DER_deltaeta_jet_jet",
-            "DER_mass_jet_jet",
-            "DER_prodeta_jet_jet",
             "DER_deltar_had_lep",
             "DER_pt_tot",
             "DER_sum_pt",
             "DER_pt_ratio_lep_had",
             "DER_met_phi_centrality",
-            "DER_lep_eta_centrality",
         ]
+
+        # all columns
+        # self.columns = [
+        #     "PRI_lep_pt",
+        #     "PRI_lep_eta",
+        #     "PRI_lep_phi",
+        #     "PRI_had_pt",
+        #     "PRI_had_eta",
+        #     "PRI_had_phi",
+        #     "PRI_jet_leading_pt",
+        #     "PRI_jet_leading_eta",
+        #     "PRI_jet_leading_phi",
+        #     "PRI_jet_subleading_pt",
+        #     "PRI_jet_subleading_eta",
+        #     "PRI_jet_subleading_phi",
+        #     "PRI_n_jets",
+        #     "PRI_jet_all_pt",
+        #     "PRI_met",
+        #     "PRI_met_phi",
+        #     "DER_mass_transverse_met_lep",
+        #     "DER_mass_vis",
+        #     "DER_pt_h",
+        #     "DER_deltaeta_jet_jet",
+        #     "DER_mass_jet_jet",
+        #     "DER_prodeta_jet_jet",
+        #     "DER_deltar_had_lep",
+        #     "DER_pt_tot",
+        #     "DER_sum_pt",
+        #     "DER_pt_ratio_lep_had",
+        #     "DER_met_phi_centrality",
+        #     "DER_lep_eta_centrality",
+        # ]
 
         syst_fixed_setting = {
             "tes": 1.0,
@@ -651,6 +758,7 @@ class SystModel:
 
                 labels = df.pop("labels")
                 df.pop("score")
+
                 weights = df.pop("weights")
 
                 df = df[self.columns]
@@ -670,6 +778,130 @@ class SystModel:
             raise ValueError("Systematics not implemented")
 
         return data_sets
+
+    def systematics_datasets2(self, dataset):
+        """
+        Build a dataset with three categories: minus (-1), nominal (0), plus (+1).
+
+        Args:
+            dataset (dict): A dictionary containing the dataset.
+
+        Returns:
+            dict: A dictionary containing one dataset with 'data', 'labels', 'weights'.
+        """
+        self.columns = [
+            "PRI_had_pt",
+            "PRI_met",
+            "PRI_met_phi",
+            "DER_mass_transverse_met_lep",
+            "DER_mass_vis",
+            "DER_pt_h",
+            "DER_deltar_had_lep",
+            "DER_pt_tot",
+            "DER_sum_pt",
+            "DER_pt_ratio_lep_had",
+            "DER_met_phi_centrality",
+        ]
+
+        # self.columns = [
+        #     "PRI_had_pt",
+        #     "PRI_met",
+        #     "PRI_met_phi",
+        #     "DER_mass_transverse_met_lep",
+        #     "DER_mass_vis",
+        #     "DER_pt_h",
+        #     "DER_deltar_had_lep",
+        #     "DER_pt_tot",
+        #     "DER_sum_pt",
+        #     "DER_pt_ratio_lep_had",
+        #     "DER_met_phi_centrality",
+        # ]
+
+        # Columns to use
+        # self.columns = [
+        #     "PRI_lep_pt",
+        #     "PRI_lep_eta",
+        #     "PRI_lep_phi",
+        #     "PRI_had_pt",
+        #     "PRI_had_eta",
+        #     "PRI_had_phi",
+        #     "PRI_jet_leading_pt",
+        #     "PRI_jet_leading_eta",
+        #     "PRI_jet_leading_phi",
+        #     "PRI_jet_subleading_pt",
+        #     "PRI_jet_subleading_eta",
+        #     "PRI_jet_subleading_phi",
+        #     "PRI_n_jets",
+        #     "PRI_jet_all_pt",
+        #     "PRI_met",
+        #     "PRI_met_phi",
+        #     "DER_mass_transverse_met_lep",
+        #     "DER_mass_vis",
+        #     "DER_pt_h",
+        #     "DER_deltaeta_jet_jet",
+        #     "DER_mass_jet_jet",
+        #     "DER_prodeta_jet_jet",
+        #     "DER_deltar_had_lep",
+        #     "DER_pt_tot",
+        #     "DER_sum_pt",
+        #     "DER_pt_ratio_lep_had",
+        #     "DER_met_phi_centrality",
+        #     "DER_lep_eta_centrality",
+        # ]
+
+        # Fixed settings
+        syst_fixed_setting = {
+            "tes": 1.0,
+            "bkg_scale": 1.0,
+            "jes": 1.0,
+            "soft_met": 0.0,
+            "ttbar_scale": 1.0,
+            "diboson_scale": 1.0,
+        }
+        syst_setting = syst_fixed_setting.copy()
+
+        # Nominal dataset (label = 0)
+        dataset_nom = self.systematics(
+            dataset.copy(), dopostprocess=True, **syst_fixed_setting
+        )
+        df_nom = dataset_nom["data"]
+        df_nom["labels"] = np.zeros(len(df_nom))
+        df_nom["weights"] = dataset_nom["weights"]
+
+        all_dfs = [df_nom]
+
+        del dataset_nom
+        # Loop over systematics values ([1.1, 0.9])
+        for syst_value in self.systematics_values:
+            syst_setting[self.NP] = syst_value
+
+            # Decide if it's plus or minus
+            label = 1 if syst_value > syst_fixed_setting[self.NP] else -1
+            name = "plus" if label == 1 else "minus"
+
+            dataset_syst = self.systematics(
+                dataset.copy(), dopostprocess=True, **syst_setting
+            )
+            df_syst = dataset_syst["data"]
+            df_syst["labels"] = label
+            df_syst["weights"] = dataset_syst["weights"]
+
+            all_dfs.append(df_syst)
+
+        df = pd.concat(all_dfs).sample(frac=1).reset_index(drop=True)
+
+        labels = df.pop("labels")
+        weights = df.pop("weights")
+        if "score" in df.columns:
+            df.pop("score")
+
+        df = df[self.columns]
+
+        return {
+            "data": df,
+            "labels": labels,
+            "weights": weights,
+        }
 
     def save(self):
 

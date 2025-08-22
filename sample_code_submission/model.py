@@ -27,7 +27,7 @@ from systematic_analysis import SystModel
 import logging
 
 logging.basicConfig(
-    level=logging.INFO,  # Set minimum level to INFO (so DEBUG is ignored)
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("app.log"),  # Write logs to file
@@ -199,7 +199,13 @@ class Model:
         if model_type == "BDT":
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree(name="main")
+            self.model = BoostedDecisionTree(
+                name=f"main",
+                use_calibration=True,  # replaces .calibrate = True
+                calibration_method="isotonic",  # or "sigmoid" / "isotonic"
+                cv_calibration=True,  # optional: use cross-validated calibration
+                calibration_split=0.2,  # fraction of training data reserved for calibration
+            )
         elif model_type == "NN":
             from neural_network import NeuralNetwork
 
@@ -224,7 +230,7 @@ class Model:
     def fit(self):
         mlflow.set_experiment("BDT_experiments_cca")
         # run_name = f"NN_epochs{self.nn_params['epochs']}_bs{self.nn_params['batch_size']} - withSys - with all features"
-        run_name = f"BDT-all featurse-1"
+        run_name = f"BDT-Somefeaturse-NoFitBalancing-isotonic-CV-NewCode"
         with mlflow.start_run(run_name=run_name):
             # Log model type
             mlflow.log_param("model_type", self.name)
@@ -265,7 +271,9 @@ class Model:
             The model (NN or BDT) is trained using: Balanced data , Labels , Updated sample weights
             """
             self.model.fit(
-                balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
+                self.training_set["data"],
+                self.training_set["labels"],
+                self.training_set["weights"],
             )
 
             # Apply systematics
@@ -360,7 +368,7 @@ class Model:
                 self.valid_set["weights"],
                 columns=["score"],
                 save_path=f"{run_dir}/main_histogram_valid.png",
-                dataName="valid"
+                dataName="valid",
             )
             mlflow.log_artifact(hist_path1)
 
@@ -370,7 +378,7 @@ class Model:
                 self.training_set["weights"],
                 columns=["score"],
                 save_path=f"{run_dir}/main_histogram_train.png",
-                dataName="tain"
+                dataName="tain",
             )
             mlflow.log_artifact(hist_path2)
 
@@ -380,7 +388,7 @@ class Model:
                 self.holdout_set["weights"],
                 columns=["score"],
                 save_path=f"{run_dir}/main_histogram_holdout.png",
-                dataName="holdout"
+                dataName="holdout",
             )
             mlflow.log_artifact(hist_path3)
 
@@ -511,7 +519,9 @@ class Model:
                 self.syst_model[syst].systematics_values = [1.1, 0.9]
                 if not self.istrained:
                     self.syst_model[syst].fit(
-                        holdout_set=self.holdout_set, training_set=self.training_set
+                        holdout_set=self.holdout_set,
+                        training_set=self.training_set,
+                        validation_set=self.valid_set,
                     )
                     self.syst_model[syst].save()
                 else:
@@ -520,7 +530,9 @@ class Model:
                     except Exception as e:
                         logger.error("Error loading syst model: %s", e)
                         self.syst_model[syst].fit(
-                            holdout_set=self.holdout_set, training_set=self.training_set
+                            holdout_set=self.holdout_set,
+                            training_set=self.training_set,
+                            validation_set=self.valid_set,
                         )
                         self.syst_model[syst].save()
 

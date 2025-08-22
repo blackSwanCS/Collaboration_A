@@ -669,8 +669,69 @@ def plot_score_distributions(
     return save_path
 
 
-def plot_three_score_distributions(
-    nominal_scores, plus_scores, minus_scores, bins=50, range=(0, 1), save_path=None
+def plot_two_score_distributions(
+    nominal_scores, sys_scores, bins=50, range=(0, 1), save_path=None, type=None
+):
+    """
+    Plot score distributions for nominal, plus, and minus systematic variations on the same plot.
+
+    Args:
+        nominal_scores (np.array): classifier scores for nominal events
+        plus_scores (np.array): classifier scores for plus variation events
+        minus_scores (np.array): classifier scores for minus variation events
+        bins (int): number of bins in the histogram
+        range (tuple): min and max score values to plot
+        save_path (str): optional path to save the plot
+
+    Returns:
+        None
+    """
+
+    plt.figure(figsize=(10, 6))
+
+    plt.hist(
+        nominal_scores,
+        bins=bins,
+        range=range,
+        histtype="step",
+        linewidth=2,
+        label="Nominal",
+        color="black",
+        density=True,
+    )
+
+    plt.hist(
+        sys_scores,
+        bins=bins,
+        range=range,
+        histtype="step",
+        linewidth=2,
+        label=f"{type} variation",
+        color="red",
+        density=True,
+    )
+
+    plt.xlabel("Classifier Score")
+    plt.ylabel("Normalized Counts")
+    plt.title(f"Score Distributions for Nominal and {type} Systematic Variations")
+    plt.legend()
+    plt.grid(True)
+
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+    plt.close()
+    return save_path
+
+
+def plot_score_distribution_for_triDataset(
+    nominal_scores,
+    plus_scores,
+    minus_scores,
+    bins=50,
+    range=(0, 1),
+    save_path=None,
+    type=None,
 ):
     """
     Plot score distributions for nominal, plus, and minus systematic variations on the same plot.
@@ -724,7 +785,9 @@ def plot_three_score_distributions(
 
     plt.xlabel("Classifier Score")
     plt.ylabel("Normalized Counts")
-    plt.title("Score Distributions for Nominal, Plus, and Minus Systematic Variations")
+    plt.title(
+        f"Score Distributions for Nominal , Plus and Minus Systematic Variations for {type} Model"
+    )
     plt.legend()
     plt.grid(True)
 
