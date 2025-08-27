@@ -82,9 +82,9 @@ class BoostedDecisionTree:
     def __init__(
         self,
         name: str = "BDT",
-        use_calibration: bool = True,
+        use_calibration: bool = False,
         calibration_method: str = "isotonic",  # "isotonic" | "sigmoid" | "temperature"
-        cv_calibration: bool = True,  # use CalibratedClassifierCV (cv folds) instead of single split
+        cv_calibration: bool = False,  # use CalibratedClassifierCV (cv folds) instead of single split
         calibration_split: float = 0.2,
         random_state: int = 42,
         xgb_params: Optional[dict] = None,
@@ -370,7 +370,7 @@ class BoostedDecisionTree:
             return np.clip(p_temp, 1e-12, 1 - 1e-12)
 
         # 3) No calibrator -> return raw probabilities
-        p_raw = self.model.predict_proba(X_np)[:, 1]
+        p_raw = self.model.predict(X_np)[:, 1]
         return np.clip(p_raw, 1e-12, 1 - 1e-12)
 
     # def predict(self, X: Union[pd.DataFrame, np.ndarray], threshold: float = 0.5) -> np.ndarray:

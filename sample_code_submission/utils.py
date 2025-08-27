@@ -591,7 +591,7 @@ def plot_calibration_curve(
 
 
 def plot_score_distributions(
-    training_set, holdout_set, preselection, columns, models, plots_dir, NP
+    training_set, holdout_set, category, preselection, columns, models, plots_dir, NP
 ):
     """
     Plots the score distributions for the nominal, plus, and minus models.
@@ -612,6 +612,18 @@ def plot_score_distributions(
     X_holdout = holdout_set["data"][columns]
 
     # Predict scores for each systematic model
+    """
+    scores ={
+        'plus model': {
+                'train': train scores for plus model,
+                'holdout': holdout scores for plus model
+        },
+        'minus model': {
+                'train': train scores for minus model,
+                'holdout': holdout scores for minus model
+        },
+    }
+    """
     scores = {}
     for key in models:
         scores[key] = {
@@ -622,17 +634,9 @@ def plot_score_distributions(
     # Plotting
     fig, axs = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
-    colors = {"plus": "red", "minus": "blue", "nominal": "black"}
+    colors = {"plus": "red", "minus": "blue"}
 
     for key, color in colors.items():
-        if key == "nominal":
-            # Estimate nominal as midpoint if not explicitly trained
-            scores["nominal"] = {
-                "train": 0.5 * (scores["plus"]["train"] + scores["minus"]["train"]),
-                "holdout": 0.5
-                * (scores["plus"]["holdout"] + scores["minus"]["holdout"]),
-            }
-
         axs[0].hist(
             scores[key]["train"],
             bins=50,
@@ -651,8 +655,12 @@ def plot_score_distributions(
             density=True,
         )
 
-    axs[0].set_title("Score Distribution - Training Set")
-    axs[1].set_title("Score Distribution - Holdout Set")
+    axs[0].set_title(
+        f"Score Distribution - Plus Model vs Minus Model On {category} Training Set"
+    )
+    axs[1].set_title(
+        f"Score Distribution - Plus Model vs Minus Model On {category} Holdout Set"
+    )
 
     for ax in axs:
         ax.set_xlabel("Model Score")
@@ -661,7 +669,9 @@ def plot_score_distributions(
 
     plt.tight_layout()
 
-    save_path = os.path.join(plots_dir, f"{NP}_score_comparison.png")
+    save_path = os.path.join(
+        plots_dir, f"{NP}_score_comparisonForPlusModel_vs_MinusModel_{category}Data.png"
+    )
     fig.savefig(save_path)
     plt.show()
     plt.close(fig)

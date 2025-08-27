@@ -75,7 +75,7 @@ class Model:
             your trained model file is now in model_dir, you can load it from here
     """
 
-    def __init__(self, get_train_set=None, systematics=None, model_type="sample_model"):
+    def __init__(self, get_train_set=None, systematics=None, model_type="BDT"):
         """
         Initializes model by loading and splitting data,
         selecting the model type (NN, BDT, or SampleModel),
@@ -201,9 +201,9 @@ class Model:
 
             self.model = BoostedDecisionTree(
                 name=f"main",
-                use_calibration=True,  # replaces .calibrate = True
+                use_calibration=False,  # replaces .calibrate = True
                 calibration_method="isotonic",  # or "sigmoid" / "isotonic"
-                cv_calibration=True,  # optional: use cross-validated calibration
+                cv_calibration=False,  # optional: use cross-validated calibration
                 calibration_split=0.2,  # fraction of training data reserved for calibration
             )
         elif model_type == "NN":
@@ -515,8 +515,8 @@ class Model:
                     NP=syst,
                     systematics=self.systematics,
                     preselection=self.preselection,
+                    base_model=self.model,
                 )
-                self.syst_model[syst].systematics_values = [1.1, 0.9]
                 if not self.istrained:
                     self.syst_model[syst].fit(
                         holdout_set=self.holdout_set,
