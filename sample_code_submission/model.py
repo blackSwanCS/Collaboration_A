@@ -232,6 +232,10 @@ class Model:
         # run_name = f"NN_epochs{self.nn_params['epochs']}_bs{self.nn_params['batch_size']} - withSys - with all features"
         run_name = f"BDT-Somefeaturse-NoFitBalancing-isotonic-CV-NewCode"
         with mlflow.start_run(run_name=run_name):
+            mlflow.set_tag(
+                "mlflow.note.content",
+                "with base_model score as a feature + with pdf plots",
+            )
             # Log model type
             mlflow.log_param("model_type", self.name)
             mlflow.log_param("train_samples", len(self.training_set["data"]))

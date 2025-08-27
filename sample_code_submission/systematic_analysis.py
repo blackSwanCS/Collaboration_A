@@ -66,8 +66,7 @@ class SystModel:
         self.upper_bound = 0.99
         self.NP = NP
         self.preselection = preselection
-        # self.systematics_values = [self.mean - self.sigma, self.mean + self.sigma]
-        self.systematics_values = [0.9, 1.1]
+        self.systematics_values = [self.mean - self.sigma, self.mean + self.sigma]
         self.base_model = base_model
         self.columns = [
             "PRI_had_pt",
@@ -483,6 +482,22 @@ class SystModel:
         )
         mlflow.log_artifact(pdrsvagx)
 
+        holdout_set_norm = self.systematics(holdout_set)
+
+        preselected_holdout = self.preselection.apply_pre_selection(
+            holdout_set_norm,
+            threshold=0.8,
+        )
+
+        _, holdout_density_ratios = self.predict_model(preselected_holdout)
+
+        self.fit_extropolate(holdout_density_ratios)
+
+        pdva = self.plot_pdf_vs_alpha(holdout_set)
+        mlflow.log_artifact(pdva)
+        pllva = self.plot_log_likelihood_vs_alpha(holdout_set)
+        mlflow.log_artifact(pllva)
+
         tri_holdout = self.systematics_datasets2(holdout_set)
         for key in self.models.keys():
             tri_scores = self.models[key].predict(tri_holdout["data"])
@@ -731,6 +746,152 @@ class SystModel:
             plt.show()
             plt.close()
             return save_path
+
+    def plot_pdf_vs_alpha(self, dataset, save_path=None):
+        """
+        Plot the PDF function across alpha values - this shows your likelihood function!
+        """
+        # Use your existing holdout predictions
+        preselected_holdout = self.preselection.apply_pre_selection(
+            dataset, threshold=0.8
+        )
+        gx_predictions = self.predict(preselected_holdout)
+        gx_plus = gx_predictions["plus"]
+        gx_minus = gx_predictions["minus"]
+
+        # Alpha range including the extrapolation regions
+        alphas = np.linspace(0.99, 1.01, 100)
+
+        # Calculate PDF for each alpha - this is your likelihood function!
+        pdf_values = []
+        pdf_mean_values = []
+
+        for alpha in alphas:
+            pdf_alpha = self.pdf(alpha, gx_plus, gx_minus)
+            pdf_values.append(pdf_alpha)
+            # Store mean for cleaner plotting
+            pdf_mean_values.append(np.mean(pdf_alpha))
+
+        # Create the plot
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+        ax1.plot(alphas, pdf_mean_values, "b-", linewidth=2, label="PDF(α)")
+        ax1.axvline(x=1.0, color="k", linestyle="--", alpha=0.7, label="Nominal")
+        ax1.axvline(x=0.99, color="r", linestyle=":", alpha=0.7, label="Minus anchor")
+        ax1.axvline(x=1.01, color="g", linestyle=":", alpha=0.7, label="Plus anchor")
+
+        # ax1.axvspan(
+        #     0.99, self.alpha[0], alpha=0.1, color="red", label="Minus extrapolation"
+        # )
+        # ax1.axvspan(
+        #     self.alpha[0],
+        #     self.alpha[1],
+        #     alpha=0.1,
+        #     color="yellow",
+        #     label="Interpolation",
+        # )
+        # ax1.axvspan(
+        #     self.alpha[1], 1.01, alpha=0.1, color="blue", label="Plus extrapolation"
+        # )
+
+        ax1.set_xlabel("Alpha (Systematic Parameter)")
+        ax1.set_ylabel("PDF Value (Mean)")
+        ax1.set_title("Likelihood Function: PDF vs Alpha")
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Bottom plot: PDF distribution at key alpha values
+        key_alphas = [0.99, 1.0, 1.01]
+        colors = ["red", "black", "green"]
+        labels = ["α=0.99 (Minus)", "α=1.0 (Nominal)", "α=1.01 (Plus)"]
+
+        for i, alpha in enumerate(key_alphas):
+            pdf_alpha = self.pdf(alpha, gx_plus, gx_minus)
+            # Plot histogram of PDF values
+            ax2.hist(
+                pdf_alpha,
+                bins=50,
+                alpha=0.6,
+                color=colors[i],
+                label=labels[i],
+                density=True,
+            )
+
+        ax2.set_xlabel("PDF Value")
+        ax2.set_ylabel("Density")
+        ax2.set_title("PDF Distributions at Key Alpha Values")
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        # Save the plot
+        run_dir = "mlruns_temp"
+        os.makedirs(run_dir, exist_ok=True)
+        save_path = f"{run_dir}/pdf_vs_alpha.png"
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.show()
+        plt.close()
+
+        return save_path
+
+    def plot_log_likelihood_vs_alpha(self, dataset, save_path=None):
+        """
+        Plot log-likelihood vs alpha - often more interpretable
+        """
+        preselected_holdout = self.preselection.apply_pre_selection(
+            dataset, threshold=0.8
+        )
+        gx_predictions = self.predict(preselected_holdout)
+        gx_plus = gx_predictions["plus"]
+        gx_minus = gx_predictions["minus"]
+
+        alphas = np.linspace(0.95, 1.05, 100)
+        log_likelihood_values = []
+
+        for alpha in alphas:
+            pdf_alpha = self.pdf(alpha, gx_plus, gx_minus)
+            # Sum log-likelihood (assuming independent events)
+            log_likelihood = np.sum(
+                np.log(pdf_alpha + 1e-10)
+            )  # Small epsilon for numerical stability
+            log_likelihood_values.append(log_likelihood)
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(
+            alphas, log_likelihood_values, "b-", linewidth=2, label="Log-Likelihood"
+        )
+        plt.axvline(x=1.0, color="k", linestyle="--", alpha=0.7, label="Nominal")
+        plt.axvline(x=0.99, color="r", linestyle=":", alpha=0.7, label="Minus anchor")
+        plt.axvline(x=1.01, color="g", linestyle=":", alpha=0.7, label="Plus anchor")
+
+        # Find and mark the maximum
+        max_idx = np.argmax(log_likelihood_values)
+        max_alpha = alphas[max_idx]
+        max_ll = log_likelihood_values[max_idx]
+        plt.scatter(
+            [max_alpha],
+            [max_ll],
+            color="red",
+            s=100,
+            zorder=5,
+            label=f"Maximum at α={max_alpha:.3f}",
+        )
+
+        plt.xlabel("Alpha (Systematic Parameter)")
+        plt.ylabel("Log-Likelihood")
+        plt.title("Log-Likelihood Function vs Alpha")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        run_dir = "mlruns_temp"
+        os.makedirs(run_dir, exist_ok=True)
+        save_path = f"{run_dir}/log_likelihood_vs_alpha.png"
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        plt.show()
+        plt.close()
+
+        return save_path
 
     def fit_extropolate(self, density_ratios):
 

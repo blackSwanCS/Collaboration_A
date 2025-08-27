@@ -370,7 +370,7 @@ class BoostedDecisionTree:
             return np.clip(p_temp, 1e-12, 1 - 1e-12)
 
         # 3) No calibrator -> return raw probabilities
-        p_raw = self.model.predict(X_np)[:, 1]
+        p_raw = self.model.predict_proba(X_np)[:, 1]
         return np.clip(p_raw, 1e-12, 1 - 1e-12)
 
     # def predict(self, X: Union[pd.DataFrame, np.ndarray], threshold: float = 0.5) -> np.ndarray:
