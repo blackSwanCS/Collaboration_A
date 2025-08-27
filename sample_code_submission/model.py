@@ -17,12 +17,12 @@ print({script_dir})
 mlflow_path = os.path.join(script_dir, "mlruns")
 
 # Set the MLflow tracking URI
-# os.environ['MLFLOW_TRACKING_URI'] = f"file:{mlflow_path}"
-# mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+os.environ['MLFLOW_TRACKING_URI'] = f"file:{mlflow_path}"
+mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
 
-# print("MLflow tracking URI set to:", os.environ['MLFLOW_TRACKING_URI'])
+print("MLflow tracking URI set to:", os.environ['MLFLOW_TRACKING_URI'])
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+# mlflow.set_tracking_uri("http://127.0.0.1:5000")
 from systematic_analysis import SystModel
 import logging
 
@@ -75,7 +75,7 @@ class Model:
             your trained model file is now in model_dir, you can load it from here
     """
 
-    def __init__(self, get_train_set=None, systematics=None, model_type="sample_model"):
+    def __init__(self, get_train_set=None, systematics=None, model_type="BDT"):
         """
         Initializes model by loading and splitting data,
         selecting the model type (NN, BDT, or SampleModel),
@@ -192,7 +192,7 @@ class Model:
             self.holdout_set["weights"][self.holdout_set["labels"] == 0].sum(),
         )
         print(" \n ")
-
+        model_type = "NN"
         print("Training Data: ", self.training_set["data"].shape)
         print(f"DEBUG: model_type = {repr(model_type)}")
 
@@ -204,12 +204,13 @@ class Model:
             from neural_network import NeuralNetwork
 
             self.nn_params = {
-                "layers": [1000, 1000, 1000, 1000, 1000, 1000],
-                "dropout": [0.3, 0.3],
+                "layers": "[256, 128, 64]",
+                "dropout": "No Dropout",
                 "epochs": 30,
                 "batch_size": 32,
+                "l2_reg":"1e-4"
             }
-            self.model = NeuralNetwork(name="main", **self.nn_params)
+            self.model = NeuralNetwork(name="main")
         elif model_type == "sample_model":
             from sample_model import SampleModel
 
@@ -222,9 +223,11 @@ class Model:
         print(f" Model is { self.name}")
 
     def fit(self):
-        mlflow.set_experiment("BDT_experiments_cca")
+        # mlflow.set_experiment("BDT_experiments_cca")
+        mlflow.set_experiment("NN_experiments_cca")
         # run_name = f"NN_epochs{self.nn_params['epochs']}_bs{self.nn_params['batch_size']} - withSys - with all features"
-        run_name = f"BDT-all featurse-1"
+        # run_name = f"BDT-all Features-2"
+        run_name = f"[256, 128, 64]_BN_NoDropout_L2Reg_EarlyStopiping_ReduceOnP_Adam30ep_SomeFeatures-NoFitBalancing_NoIsotonicRegression"
         with mlflow.start_run(run_name=run_name):
             # Log model type
             mlflow.log_param("model_type", self.name)
@@ -265,8 +268,14 @@ class Model:
             The model (NN or BDT) is trained using: Balanced data , Labels , Updated sample weights
             """
             self.model.fit(
-                balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
+                self.training_set["data"], 
+                self.training_set["labels"], 
+                weights_train=self.training_set["weights"],
+                val_data=self.valid_set["data"],
+                y_val=self.valid_set["labels"],
+                weights_val=self.valid_set["weights"]
             )
+
 
             # Apply systematics
 
@@ -305,6 +314,11 @@ class Model:
             holdout_acc = accuracy_score(holdout_labels, holdout_preds)
             mlflow.log_metric("final_holdout_accuracy", holdout_acc)
 
+                        # --- Save score column
+            self.valid_set["data"]["score"] = valid_score
+            self.training_set["data"]["score"] = train_score
+            self.holdout_set["data"]["score"] = holdout_score
+            
             # --- mu results
             train_results = compute_mu(
                 train_score, self.training_set["weights"], self.saved_info
@@ -331,11 +345,6 @@ class Model:
             for key, value in valid_results.items():
                 print(f"valid_{key}", value)
                 mlflow.log_metric(f"valid_{key}", value)
-
-            # --- Save score column
-            self.valid_set["data"]["score"] = valid_score
-            self.training_set["data"]["score"] = train_score
-            self.holdout_set["data"]["score"] = holdout_score
 
             # --- Plots
             from utils import (
@@ -511,7 +520,7 @@ class Model:
                 self.syst_model[syst].systematics_values = [1.1, 0.9]
                 if not self.istrained:
                     self.syst_model[syst].fit(
-                        holdout_set=self.holdout_set, training_set=self.training_set
+                        holdout_set=self.holdout_set, training_set=self.training_set , validation_set=self.valid_set,
                     )
                     self.syst_model[syst].save()
                 else:

@@ -668,6 +668,60 @@ def plot_score_distributions(
     logger.info(f"Score distribution plot saved at {save_path}")
     return save_path
 
+def plot_score_distributions_forAModel(
+    nominal_scores, sys_scores, bins=50, range=(0, 1), save_path=None , type = ""
+):
+    """
+    Plot score distributions for nominal, plus, and minus systematic variations on the same plot.
+
+    Args:
+        nominal_scores (np.array): classifier scores for nominal events
+        plus_scores (np.array): classifier scores for plus variation events
+        minus_scores (np.array): classifier scores for minus variation events
+        bins (int): number of bins in the histogram
+        range (tuple): min and max score values to plot
+        save_path (str): optional path to save the plot
+
+    Returns:
+        None
+    """
+
+    plt.figure(figsize=(10, 6))
+
+    plt.hist(
+        nominal_scores,
+        bins=bins,
+        range=range,
+        histtype="step",
+        linewidth=2,
+        label="Nominal",
+        color="black",
+        density=True,
+    )
+
+    plt.hist(
+        sys_scores,
+        bins=bins,
+        range=range,
+        histtype="step",
+        linewidth=2,
+        label=f"{type} variation",
+        color="red",
+        density=True,
+    )
+
+    plt.xlabel("Classifier Score")
+    plt.ylabel("Normalized Counts")
+    plt.title(f"Score Distributions for Nomina and {type} Systematic Variations")
+    plt.legend()
+    plt.grid(True)
+
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+    plt.close()
+    return save_path
+
 
 def plot_three_score_distributions(
     nominal_scores, plus_scores, minus_scores, bins=50, range=(0, 1), save_path=None
@@ -801,3 +855,53 @@ def plot_three_systematics_calibration(
     plt.show()
     plt.close()
     return save_path
+
+def plot_feature_hist(data, scores, feature_name, threshold=0.4, bins=30, normalize=False , save_path=""):
+    """
+    Plot histogram of a given feature for events split by a score threshold.
+
+    Parameters:
+    ----------
+    data : pandas.DataFrame
+        DataFrame containing the feature.
+    scores : array-like
+        Model prediction scores.
+    feature_name : str
+        Column name of the feature to plot.
+    threshold : float
+        Score threshold to separate events.
+    bins : int
+        Number of bins for the histogram.
+    normalize : bool
+        If True, normalize histograms to compare shapes.
+    """
+    if feature_name not in data.columns:
+        raise ValueError(f"'{feature_name}' column not found in data")
+
+    # Masks for low/high score
+    mask_low = scores < threshold
+    mask_high = scores >= threshold
+
+    # Histogram weights (normalize if needed)
+    weights_low = None
+    weights_high = None
+    if normalize:
+        weights_low = np.ones(sum(mask_low)) / sum(mask_low)
+        weights_high = np.ones(sum(mask_high)) / sum(mask_high)
+
+    # Plot
+    plt.figure(figsize=(8, 5))
+    plt.hist(data.loc[mask_low, feature_name], bins=bins, alpha=0.6,
+             label=f"Score < {threshold}", weights=weights_low)
+    plt.hist(data.loc[mask_high, feature_name], bins=bins, alpha=0.6,
+             label=f"Score ≥ {threshold}", weights=weights_high)
+    plt.xlabel(feature_name)
+    plt.ylabel("Normalized entries" if normalize else "Number of events")
+    plt.title(f"Distribution of {feature_name} (split at score={threshold})")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.show()
+    plt.close()
+    return save_path
+

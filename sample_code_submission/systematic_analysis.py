@@ -8,7 +8,7 @@ import os
 import pandas as pd
 from iminuit import Minuit
 import logging
-from utils import plot_calibration_curve, roc_curve_wrapper, plot_score_distributions , plot_three_score_distributions , plot_three_systematics_calibration
+from utils import plot_calibration_curve, roc_curve_wrapper, plot_score_distributions , plot_three_score_distributions , plot_three_systematics_calibration,plot_score_distributions_forAModel,plot_feature_hist
 import mlflow
 
 
@@ -30,11 +30,11 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+XGBOOST = False
 # XGBOOST = True
-XGBOOST = True
 
-# TENSORFLOW = not XGBOOST
-TENSORFLOW = False
+TENSORFLOW = not XGBOOST
+# TENSORFLOW = False
 
 
 current_dir = os.path.dirname(__file__)
@@ -64,18 +64,19 @@ class SystModel:
                 "minus": BoostedDecisionTree(name=f"{self.NP}_minus"),
             }
             self.name = "BDT"
-
+            
             self.models["plus"].calibrate = True
             self.models["minus"].calibrate = True
-
+            logger.error("sys model running on:" , self.name)
         elif TENSORFLOW == True:
             from neural_network import NeuralNetwork
 
             self.models = {
-                "plus": NeuralNetwork(name=f"{self.NP}_plus"),
-                "minus": NeuralNetwork(name=f"{self.NP}_minus"),
+                "plus": NeuralNetwork(name=f"{self.NP}_plus",input_dim=11),
+                "minus": NeuralNetwork(name=f"{self.NP}_minus",input_dim=11),
             }
             self.name = "NN"
+            logger.error("sys model running on:" , self.name)
 
         else:
             logger.error("No model selected")
@@ -211,7 +212,7 @@ class SystModel:
         )
         mlflow.log_artifact(score_dist_path)
 
-    def fit(self, holdout_set, training_set=None):
+    def fit(self, holdout_set, training_set=None,validation_set=None):
         """
         Trains the model.
 
@@ -231,7 +232,21 @@ class SystModel:
         
         #  Gx is a weight ratio
         self.Gx = {}
-
+        '''
+        holdout_data_sets=
+            {
+                "plus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only plus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                },
+                "minus": {
+                    "data": <pandas.DataFrame>,    # features for nominal+shifted events (only minus variation)
+                    "labels": <pandas.Series>,     # 0 = nominal, 1 = shifted
+                    "weights": <pandas.Series>     # per-event training weights
+                }
+            }
+        '''
         for key in holdout_data_sets.keys():
 
             holdout_data_set = self.preselection.apply_pre_selection(
@@ -243,10 +258,10 @@ class SystModel:
             self.Gx[key] = np.sum(holdout_data_set["weights"][holdout_data_set["labels"] == 1]
             ) / np.sum(holdout_data_set["weights"][holdout_data_set["labels"] == 0])
 
-            logger.debug("Gx %s", self.Gx[key])
-            logger.debug("Gx shape %s", self.Gx[key].shape)
-            print("Gx %s", self.Gx[key])
-            print("Gx shape %s", self.Gx[key].shape)
+            logger.debug(f"Gx for holdoutset in {key} %s", self.Gx[key])
+            logger.debug(f"Gx shape for holdoutset in {key} %s", self.Gx[key].shape)
+            print(f"Gx for holdoutset in {key} %s", self.Gx[key])
+            print(f"Gx shape for holdoutset in {key} %s", self.Gx[key].shape)
 
         if self.norm_syst:
             return
@@ -277,7 +292,9 @@ class SystModel:
             }
 
             '''
-            training_data_sets = self.systematics_datasets(training_set)
+            training_data_sets = self.systematics_datasets(training_set)            
+            validation_data_sets = self.systematics_datasets(validation_set)
+
             # balancing weights same as in the model.py 
             for key in training_data_sets.keys(): # key = "plus" or "minus"
                 balanced_set = training_data_sets[key].copy()
@@ -301,9 +318,12 @@ class SystModel:
                 print(len(weights_train[train_labels == 0]), f"label = 0 {key}")
 
                 self.models[key].fit(
-                    balanced_set["data"],
-                    balanced_set["labels"],
-                    balanced_set["weights"],
+                    training_data_sets[key]["data"],
+                    training_data_sets[key]["labels"],
+                    training_data_sets[key]["weights"],
+                    val_data=validation_data_sets[key]["data"],
+                    y_val=validation_data_sets[key]["labels"],
+                    weights_val=validation_data_sets[key]["weights"]
                 )
 
                 # self.models[key].save(self.model_dir)
@@ -325,7 +345,6 @@ class SystModel:
                     "weights": <pandas.Series>     # per-event training weights
                 }
             }
-
             '''
             
         for key in holdout_data_sets.keys(): # "plus" and "minus"
@@ -357,8 +376,6 @@ class SystModel:
             for reweighting :
             
             This function is designed to check how well the model’s density ratio reweights the signal distribution to match the background distribution for each feature/variable in the dataset.
-
-
             '''
             self.analyze(
                 score=holdout_score_temp,
@@ -369,6 +386,11 @@ class SystModel:
                 holdout_set=holdout_data_sets[key],
             )
             
+            nominal_scores_back = holdout_data_sets[key]["data"]["score"][holdout_data_sets[key]["labels"] == 0].values
+            sys_scores_signal = holdout_data_sets[key]["data"]["score"][holdout_data_sets[key]["labels"] == 1].values
+            
+            psdfam=plot_score_distributions_forAModel(nominal_scores_back,sys_scores_signal,bins=50, range=(0, 1), save_path=f"score_distributionsforAModel-{key}.png" , type= f"{key}")
+            mlflow.log_artifact(psdfam)
             # test
             print(
                 training_data_sets[key]["data"].shape,
@@ -401,7 +423,13 @@ class SystModel:
             save_path=f"{current_dir}/plots/systematics_score_comparison.png"
             )
         mlflow.log_artifact(ptsc)
-
+        feature_name="PRI_had_pt"
+        minus_PRI_had_pt = plot_feature_hist(holdout_data_sets["minus"]["data"], holdout_data_sets["minus"]["data"]["score"].values, feature_name=feature_name, threshold=0.4, normalize=True,save_path=f"{current_dir}/plots/minus_{feature_name}.png")
+        mlflow.log_artifact(minus_PRI_had_pt)
+        
+        plus_PRI_had_pt = plot_feature_hist(holdout_data_sets["plus"]["data"], holdout_data_sets["plus"]["data"]["score"].values, feature_name=feature_name, threshold=0.4, normalize=True,save_path=f"{current_dir}/plots/plus_{feature_name}.png")
+        mlflow.log_artifact(plus_PRI_had_pt)
+        
         holdout_set_norm = self.systematics(holdout_set)
 
         preselected_holdout = self.preselection.apply_pre_selection(
@@ -523,51 +551,51 @@ class SystModel:
             dict: A dictionary containing the dataset with systematics.
         """
 
-        # self.columns = [
-        #     "PRI_had_pt",
-        #     "PRI_met",
-        #     "PRI_met_phi",
-        #     "DER_mass_transverse_met_lep",
-        #     "DER_mass_vis",
-        #     "DER_pt_h",
-        #     "DER_deltar_had_lep",
-        #     "DER_pt_tot",
-        #     "DER_sum_pt",
-        #     "DER_pt_ratio_lep_had",
-        #     "DER_met_phi_centrality",
-        # ]
-
-        # all columns
         self.columns = [
-            "PRI_lep_pt",
-            "PRI_lep_eta",
-            "PRI_lep_phi",
             "PRI_had_pt",
-            "PRI_had_eta",
-            "PRI_had_phi",
-            "PRI_jet_leading_pt",
-            "PRI_jet_leading_eta",
-            "PRI_jet_leading_phi",
-            "PRI_jet_subleading_pt",
-            "PRI_jet_subleading_eta",
-            "PRI_jet_subleading_phi",
-            "PRI_n_jets",
-            "PRI_jet_all_pt",
             "PRI_met",
             "PRI_met_phi",
             "DER_mass_transverse_met_lep",
             "DER_mass_vis",
             "DER_pt_h",
-            "DER_deltaeta_jet_jet",
-            "DER_mass_jet_jet",
-            "DER_prodeta_jet_jet",
             "DER_deltar_had_lep",
             "DER_pt_tot",
             "DER_sum_pt",
             "DER_pt_ratio_lep_had",
             "DER_met_phi_centrality",
-            "DER_lep_eta_centrality",
         ]
+
+        # all columns
+        # self.columns = [
+        #     "PRI_lep_pt",
+        #     "PRI_lep_eta",
+        #     "PRI_lep_phi",
+        #     "PRI_had_pt",
+        #     "PRI_had_eta",
+        #     "PRI_had_phi",
+        #     "PRI_jet_leading_pt",
+        #     "PRI_jet_leading_eta",
+        #     "PRI_jet_leading_phi",
+        #     "PRI_jet_subleading_pt",
+        #     "PRI_jet_subleading_eta",
+        #     "PRI_jet_subleading_phi",
+        #     "PRI_n_jets",
+        #     "PRI_jet_all_pt",
+        #     "PRI_met",
+        #     "PRI_met_phi",
+        #     "DER_mass_transverse_met_lep",
+        #     "DER_mass_vis",
+        #     "DER_pt_h",
+        #     "DER_deltaeta_jet_jet",
+        #     "DER_mass_jet_jet",
+        #     "DER_prodeta_jet_jet",
+        #     "DER_deltar_had_lep",
+        #     "DER_pt_tot",
+        #     "DER_sum_pt",
+        #     "DER_pt_ratio_lep_had",
+        #     "DER_met_phi_centrality",
+        #     "DER_lep_eta_centrality",
+        # ]
 
         syst_fixed_setting = {
             "tes": 1.0,
