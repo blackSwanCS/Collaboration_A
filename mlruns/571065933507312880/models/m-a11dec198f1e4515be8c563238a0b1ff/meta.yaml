@@ -1,0 +1,10 @@
+artifact_location: mlflow-artifacts:/571065933507312880/models/m-a11dec198f1e4515be8c563238a0b1ff/artifacts
+creation_timestamp: 1753459276249
+experiment_id: '571065933507312880'
+last_updated_timestamp: 1753459289831
+model_id: m-a11dec198f1e4515be8c563238a0b1ff
+model_type: ''
+name: keras_model
+source_run_id: d117d72f8dd6414e9056aaf7cc99e449
+status: 2
+status_message: null

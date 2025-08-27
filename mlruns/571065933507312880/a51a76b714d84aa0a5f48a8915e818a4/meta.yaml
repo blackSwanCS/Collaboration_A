@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/571065933507312880/a51a76b714d84aa0a5f48a8915e818a4/artifacts
+end_time: 1753184461624
+entry_point_name: ''
+experiment_id: '571065933507312880'
+lifecycle_stage: active
+run_id: a51a76b714d84aa0a5f48a8915e818a4
+run_name: NN_epochs30_bs32 - withSys
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753184398095
+status: 4
+tags: []
+user_id: Abdullah_Jamal

@@ -1,0 +1,14 @@
+artifact_uri: file:///sps/ijclab/lalorsay/abdallah/Higgs_collaborations/sample_code_submission/mlruns/293492854866876584/770e7c70b2db4fce94d0d2e311397ae2/artifacts
+end_time: 1754057193635
+entry_point_name: ''
+experiment_id: '293492854866876584'
+lifecycle_stage: active
+run_id: 770e7c70b2db4fce94d0d2e311397ae2
+run_name: NN - all featurse
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1754057190117
+status: 4
+tags: []
+user_id: aalharrem

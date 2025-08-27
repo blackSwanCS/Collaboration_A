@@ -1,0 +1,6 @@
+artifact_location: file:///sps/ijclab/lalorsay/abdallah/Higgs_collaborations/sample_code_submission/mlruns/515489160352663567
+creation_time: 1754295324472
+experiment_id: '515489160352663567'
+last_update_time: 1754295324472
+lifecycle_stage: active
+name: BDT_experiments_slurm
