@@ -591,7 +591,7 @@ def plot_calibration_curve(
 
 
 def plot_score_distributions(
-    training_set, holdout_set, preselection, columns, models, plots_dir, NP
+    training_set, holdout_set, category, preselection, columns, models, plots_dir, NP
 ):
     """
     Plots the score distributions for the nominal, plus, and minus models.
@@ -612,6 +612,18 @@ def plot_score_distributions(
     X_holdout = holdout_set["data"][columns]
 
     # Predict scores for each systematic model
+    """
+    scores ={
+        'plus model': {
+                'train': train scores for plus model,
+                'holdout': holdout scores for plus model
+        },
+        'minus model': {
+                'train': train scores for minus model,
+                'holdout': holdout scores for minus model
+        },
+    }
+    """
     scores = {}
     for key in models:
         scores[key] = {
@@ -622,17 +634,9 @@ def plot_score_distributions(
     # Plotting
     fig, axs = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
-    colors = {"plus": "red", "minus": "blue", "nominal": "black"}
+    colors = {"plus": "red", "minus": "blue"}
 
     for key, color in colors.items():
-        if key == "nominal":
-            # Estimate nominal as midpoint if not explicitly trained
-            scores["nominal"] = {
-                "train": 0.5 * (scores["plus"]["train"] + scores["minus"]["train"]),
-                "holdout": 0.5
-                * (scores["plus"]["holdout"] + scores["minus"]["holdout"]),
-            }
-
         axs[0].hist(
             scores[key]["train"],
             bins=50,
@@ -651,8 +655,12 @@ def plot_score_distributions(
             density=True,
         )
 
-    axs[0].set_title("Score Distribution - Training Set")
-    axs[1].set_title("Score Distribution - Holdout Set")
+    axs[0].set_title(
+        f"Score Distribution - Plus Model vs Minus Model On {category} Training Set"
+    )
+    axs[1].set_title(
+        f"Score Distribution - Plus Model vs Minus Model On {category} Holdout Set"
+    )
 
     for ax in axs:
         ax.set_xlabel("Model Score")
@@ -661,15 +669,18 @@ def plot_score_distributions(
 
     plt.tight_layout()
 
-    save_path = os.path.join(plots_dir, f"{NP}_score_comparison.png")
+    save_path = os.path.join(
+        plots_dir, f"{NP}_score_comparisonForPlusModel_vs_MinusModel_{category}Data.png"
+    )
     fig.savefig(save_path)
     plt.show()
     plt.close(fig)
     logger.info(f"Score distribution plot saved at {save_path}")
     return save_path
 
-def plot_score_distributions_forAModel(
-    nominal_scores, sys_scores, bins=50, range=(0, 1), save_path=None , type = ""
+
+def plot_two_score_distributions(
+    nominal_scores, sys_scores, bins=50, range=(0, 1), save_path=None, type=None
 ):
     """
     Plot score distributions for nominal, plus, and minus systematic variations on the same plot.
@@ -712,7 +723,7 @@ def plot_score_distributions_forAModel(
 
     plt.xlabel("Classifier Score")
     plt.ylabel("Normalized Counts")
-    plt.title(f"Score Distributions for Nomina and {type} Systematic Variations")
+    plt.title(f"Score Distributions for Nominal and {type} Systematic Variations")
     plt.legend()
     plt.grid(True)
 
@@ -723,8 +734,14 @@ def plot_score_distributions_forAModel(
     return save_path
 
 
-def plot_three_score_distributions(
-    nominal_scores, plus_scores, minus_scores, bins=50, range=(0, 1), save_path=None
+def plot_score_distribution_for_triDataset(
+    nominal_scores,
+    plus_scores,
+    minus_scores,
+    bins=50,
+    range=(0, 1),
+    save_path=None,
+    type=None,
 ):
     """
     Plot score distributions for nominal, plus, and minus systematic variations on the same plot.
@@ -778,7 +795,9 @@ def plot_three_score_distributions(
 
     plt.xlabel("Classifier Score")
     plt.ylabel("Normalized Counts")
-    plt.title("Score Distributions for Nominal, Plus, and Minus Systematic Variations")
+    plt.title(
+        f"Score Distributions for Nominal , Plus and Minus Systematic Variations for {type} Model"
+    )
     plt.legend()
     plt.grid(True)
 
@@ -855,53 +874,3 @@ def plot_three_systematics_calibration(
     plt.show()
     plt.close()
     return save_path
-
-def plot_feature_hist(data, scores, feature_name, threshold=0.4, bins=30, normalize=False , save_path=""):
-    """
-    Plot histogram of a given feature for events split by a score threshold.
-
-    Parameters:
-    ----------
-    data : pandas.DataFrame
-        DataFrame containing the feature.
-    scores : array-like
-        Model prediction scores.
-    feature_name : str
-        Column name of the feature to plot.
-    threshold : float
-        Score threshold to separate events.
-    bins : int
-        Number of bins for the histogram.
-    normalize : bool
-        If True, normalize histograms to compare shapes.
-    """
-    if feature_name not in data.columns:
-        raise ValueError(f"'{feature_name}' column not found in data")
-
-    # Masks for low/high score
-    mask_low = scores < threshold
-    mask_high = scores >= threshold
-
-    # Histogram weights (normalize if needed)
-    weights_low = None
-    weights_high = None
-    if normalize:
-        weights_low = np.ones(sum(mask_low)) / sum(mask_low)
-        weights_high = np.ones(sum(mask_high)) / sum(mask_high)
-
-    # Plot
-    plt.figure(figsize=(8, 5))
-    plt.hist(data.loc[mask_low, feature_name], bins=bins, alpha=0.6,
-             label=f"Score < {threshold}", weights=weights_low)
-    plt.hist(data.loc[mask_high, feature_name], bins=bins, alpha=0.6,
-             label=f"Score ≥ {threshold}", weights=weights_high)
-    plt.xlabel(feature_name)
-    plt.ylabel("Normalized entries" if normalize else "Number of events")
-    plt.title(f"Distribution of {feature_name} (split at score={threshold})")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.show()
-    plt.close()
-    return save_path
-

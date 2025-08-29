@@ -146,21 +146,34 @@ class NeuralNetwork:
             verbose=1
         )
 
-        # Scale features
         self.scaler.fit(train_data)
         X_train = self.scaler.transform(train_data)
-        X_val = self.scaler.transform(val_data) if val_data is not None else None
-
-        # Train
-        history = self.model.fit(
-            X_train, y_train,
-            sample_weight=weights_train,
-            validation_data=(X_val, y_val, weights_val) if val_data is not None else None,
-            epochs=self.epochs,
-            batch_size=self.batch_size,
-            verbose=2,
-            callbacks=[early_stop, reduce_lr]
-        )
+        
+        if val_data is not None:
+            # If user provided validation data → use it
+            X_val = self.scaler.transform(val_data)
+            history = self.model.fit(
+                X_train, y_train,
+                sample_weight=weights_train,
+                validation_data=(X_val, y_val, weights_val),
+                epochs=self.epochs,
+                batch_size=self.batch_size,
+                verbose=2,
+                callbacks=[early_stop, reduce_lr]
+            )
+        else:
+            # If no validation data → hold out 20% automatically
+            history = self.model.fit(
+                X_train, y_train,
+                sample_weight=weights_train,
+                validation_split=0.2,
+                epochs=self.epochs,
+                batch_size=self.batch_size,
+                verbose=2,
+                callbacks=[early_stop, reduce_lr]
+            )
+            
+            
         self.history = history.history
 
         # Optional calibration step

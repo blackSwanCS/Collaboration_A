@@ -75,7 +75,7 @@ class Model:
             your trained model file is now in model_dir, you can load it from here
     """
 
-    def __init__(self, get_train_set=None, systematics=None, model_type="BDT"):
+    def __init__(self, get_train_set=None, systematics=None, model_type="NN"):
         """
         Initializes model by loading and splitting data,
         selecting the model type (NN, BDT, or SampleModel),
@@ -210,7 +210,7 @@ class Model:
                 "batch_size": 32,
                 "l2_reg":"1e-4"
             }
-            self.model = NeuralNetwork(name="main")
+            self.model = NeuralNetwork(name="main",input_dim=28)
         elif model_type == "sample_model":
             from sample_model import SampleModel
 
@@ -270,10 +270,7 @@ class Model:
             self.model.fit(
                 self.training_set["data"], 
                 self.training_set["labels"], 
-                weights_train=self.training_set["weights"],
-                val_data=self.valid_set["data"],
-                y_val=self.valid_set["labels"],
-                weights_val=self.valid_set["weights"]
+                self.training_set["weights"],
             )
 
 
@@ -516,8 +513,8 @@ class Model:
                     NP=syst,
                     systematics=self.systematics,
                     preselection=self.preselection,
+                    base_model=self.model,
                 )
-                self.syst_model[syst].systematics_values = [1.1, 0.9]
                 if not self.istrained:
                     self.syst_model[syst].fit(
                         holdout_set=self.holdout_set, training_set=self.training_set , validation_set=self.valid_set,
