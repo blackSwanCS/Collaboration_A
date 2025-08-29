@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/571065933507312880/c8110cd0fdef4fa9a87f89348c64b407/artifacts
+end_time: 1753710654860
+entry_point_name: ''
+experiment_id: '571065933507312880'
+lifecycle_stage: active
+run_id: c8110cd0fdef4fa9a87f89348c64b407
+run_name: BDT - all featurse
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753710639310
+status: 4
+tags: []
+user_id: Abdullah_Jamal

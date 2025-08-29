@@ -1,0 +1,14 @@
+artifact_uri: file:///sps/ijclab/lalorsay/abdallah/Higgs_collaborations/sample_code_submission/mlruns/515489160352663567/1d4e30dc371c40fd8e6740a8be68df86/artifacts
+end_time: 1754296378192
+entry_point_name: ''
+experiment_id: '515489160352663567'
+lifecycle_stage: active
+run_id: 1d4e30dc371c40fd8e6740a8be68df86
+run_name: BDT - all featurse, slurm
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1754295324756
+status: 3
+tags: []
+user_id: aalharrem

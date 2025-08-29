@@ -2,13 +2,49 @@
 # Dummy Sample Submission
 # ------------------------------
 
-BDT = True
-NN = False
 
 from statistical_analysis import calculate_saved_info, compute_mu
 import numpy as np
+import pandas as pd
+import mlflow
+import mlflow.keras
+import matplotlib.pyplot as plt
+import os
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+print({script_dir})
+# Define the path to the 'mlruns' folder relative to the script
+mlflow_path = os.path.join(script_dir, "mlruns")
+
+# Set the MLflow tracking URI
+os.environ['MLFLOW_TRACKING_URI'] = f"file:{mlflow_path}"
+mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])
+
+print("MLflow tracking URI set to:", os.environ['MLFLOW_TRACKING_URI'])
+
+# mlflow.set_tracking_uri("http://127.0.0.1:5000")
+from systematic_analysis import SystModel
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,  # Set minimum level to INFO (so DEBUG is ignored)
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),  # Write logs to file
+        logging.StreamHandler(),  # Also print logs to console
+    ],
+)
+logger = logging.getLogger(__name__)
+from systematic_analysis import SystModel
 
 
+# Dummy preselection logic (does nothing for now)
+class DummyPreselection:
+    def apply_pre_selection(self, dataset, threshold=0.8):
+        return dataset
+
+
+# Main class for training and prediction. Used by the competition ingestion system.
 class Model:
     """
     This is a model class to be submitted by the participants in their submission.
@@ -39,33 +75,32 @@ class Model:
             your trained model file is now in model_dir, you can load it from here
     """
 
-    def __init__(self, get_train_set=None, systematics=None, model_type="sample_model"):
+    def __init__(self, get_train_set=None, systematics=None, model_type="NN"):
         """
-        Model class constructor
-
-        Params:
-            train_set:
-                a dictionary with data, labels, weights and settings
-
-            systematics:
-                a class which you can use to get a dataset with systematics added
-                See sample submission for usage of systematics
-
-
-        Returns:
-            None
+        Initializes model by loading and splitting data,
+        selecting the model type (NN, BDT, or SampleModel),
+        and preparing systematics handler.
         """
 
-        indices = np.arange(15000)
+        indices = np.arange(1400_000)
 
         np.random.shuffle(indices)
 
-        train_indices = indices[:5000]
-        holdout_indices = indices[5000:10000]
-        valid_indices = indices[10000:]
+        train_indices = indices[:500_000]
+        holdout_indices = indices[500_000:900_000]
+        valid_indices = indices[900_000:]
 
+        # Load and split training data
         training_df = get_train_set(selected_indices=train_indices)
+        """
+        {
+        "labels": pd.Series (binary target),
+        "weights": pd.Series (float sample weights),
+        "detailed_labels": pd.Series (str category like 'ttbar'),
+        "data": pd.DataFrame (28 numerical features)
+        }
 
+        """
         self.training_set = {
             "labels": training_df.pop("labels"),
             "weights": training_df.pop("weights"),
@@ -73,8 +108,29 @@ class Model:
             "data": training_df,
         }
 
+        # Flag indicating whether the model has been trained yet.
+        # will track whether fit() has been called yet.
+        self.istrained = False
+        self.preselection = DummyPreselection()
+
+        # Frees up memory — training_df is no longer needed after its contents were split and stored.
         del training_df
 
+        """
+        It's a data transformation utility that simulates real-world measurement uncertainties in high-energy physics — 
+        like when a detector mismeasures the energy of a tau or a jet. In particular, this function:
+
+        - Perturbs specific physics features like PRI_had_pt, PRI_jet_leading_pt, PRI_met, etc.
+
+        - Adjusts weights for specific background processes (like ttbar or diboson)
+
+        - Recomputes derived features (DERs) after those changes
+
+        - Returns the modified dataset, which will later be used to train models under systematic variations (like the ±10% variations in SystModel)
+        
+        So,
+        Simulates real-world detector biases (energy mismeasurement, MET noise, etc.) , Reweights specific background classes ,Keeps the data structure consistent , Is a core part of evaluating model robustness to uncertainties
+        """
         self.systematics = systematics
 
         print("Training Data: ", self.training_set["data"].shape)
@@ -136,18 +192,25 @@ class Model:
             self.holdout_set["weights"][self.holdout_set["labels"] == 0].sum(),
         )
         print(" \n ")
-
+        model_type = "NN"
         print("Training Data: ", self.training_set["data"].shape)
         print(f"DEBUG: model_type = {repr(model_type)}")
 
         if model_type == "BDT":
             from boosted_decision_tree import BoostedDecisionTree
 
-            self.model = BoostedDecisionTree(train_data=self.training_set["data"])
+            self.model = BoostedDecisionTree(name="main")
         elif model_type == "NN":
             from neural_network import NeuralNetwork
 
-            self.model = NeuralNetwork(train_data=self.training_set["data"])
+            self.nn_params = {
+                "layers": "[256, 128, 64]",
+                "dropout": "No Dropout",
+                "epochs": 30,
+                "batch_size": 32,
+                "l2_reg":"1e-4"
+            }
+            self.model = NeuralNetwork(name="main",input_dim=28)
         elif model_type == "sample_model":
             from sample_model import SampleModel
 
@@ -160,102 +223,312 @@ class Model:
         print(f" Model is { self.name}")
 
     def fit(self):
-        """
-        Params:
-            None
+        # mlflow.set_experiment("BDT_experiments_cca")
+        mlflow.set_experiment("NN_experiments_cca")
+        # run_name = f"NN_epochs{self.nn_params['epochs']}_bs{self.nn_params['batch_size']} - withSys - with all features"
+        # run_name = f"BDT-all Features-2"
+        run_name = f"[256, 128, 64]_BN_NoDropout_L2Reg_EarlyStopiping_ReduceOnP_Adam30ep_SomeFeatures-NoFitBalancing_NoIsotonicRegression"
+        with mlflow.start_run(run_name=run_name):
+            # Log model type
+            mlflow.log_param("model_type", self.name)
+            mlflow.log_param("train_samples", len(self.training_set["data"]))
 
-        Functionality:
-            this function can be used to train a model
+            if self.name == "NN":
+                for k, v in self.nn_params.items():
+                    mlflow.log_param(k, v)
 
-        Returns:
-            None
-        """
-
-        balanced_set = self.training_set.copy()
-
-        weights_train = self.training_set["weights"].copy()
-        train_labels = self.training_set["labels"].copy()
-        class_weights_train = (
-            weights_train[train_labels == 0].sum(),
-            weights_train[train_labels == 1].sum(),
-        )
-
-        for i in range(len(class_weights_train)):  # loop on B then S target
-            # training dataset: equalize number of background and signal
-            weights_train[train_labels == i] *= (
-                max(class_weights_train) / class_weights_train[i]
+            # we balance classes here
+            """
+            If class 1 is underrepresented, its weights are scaled up to match class 0.
+            This ensures the model doesn’t get biased toward the majority class.
+            
+            For whichever class has the smaller total weight, its sample weights get multiplied by a factor > 1.
+            The larger class might get factor = 1 (if it already had the maximum sum).
+            The number of events stays the same, only their importance in training changes.
+            This means the training algorithm sees both classes as equally important in terms of total contribution to the loss.
+            """
+            balanced_set = self.training_set.copy()
+            weights_train = self.training_set["weights"].copy()
+            train_labels = self.training_set["labels"].copy()
+            class_weights_train = (
+                weights_train[train_labels == 0].sum(),
+                weights_train[train_labels == 1].sum(),
             )
-            # test dataset : increase test weight to compensate for sampling
 
-        balanced_set["weights"] = weights_train
+            for i in [0, 1]:
+                weights_train[train_labels == i] *= (
+                    max(class_weights_train) / class_weights_train[i]
+                )
 
-        self.model.fit(
-            balanced_set["data"], balanced_set["labels"], balanced_set["weights"]
-        )
+            balanced_set["weights"] = weights_train
 
-        self.holdout_set = self.systematics(self.holdout_set)
+            # fitting out model (eg , BDT or NN) with the balanced data
+            # Train model
+            """
+            The model (NN or BDT) is trained using: Balanced data , Labels , Updated sample weights
+            """
+            self.model.fit(
+                self.training_set["data"], 
+                self.training_set["labels"], 
+                self.training_set["weights"],
+            )
 
-        self.saved_info = calculate_saved_info(self.model, self.holdout_set)
 
-        self.training_set = self.systematics(self.training_set)
+            # Apply systematics
 
-        # Compute  Results
-        train_score = self.model.predict(self.training_set["data"])
-        train_results = compute_mu(
-            train_score, self.training_set["weights"], self.saved_info
-        )
+            # Save info
+            """
+            This function takes a trained model and a holdout set (validation/test data), applies the model to the data, and calculates two key values:
+            - γ (gamma): sum of weights for true positives (Higgs correctly classified)
 
-        holdout_score = self.model.predict(self.holdout_set["data"])
-        holdout_results = compute_mu(
-            holdout_score, self.holdout_set["weights"], self.saved_info
-        )
+            - β (beta): sum of weights for false positives (non-Higgs misclassified as Higgs)
 
-        self.valid_set = self.systematics(self.valid_set)
+            These are stored in a dictionary called saved_info and later used in physics metrics (e.g. mû and Δmû).
+            """
+            self.saved_info = calculate_saved_info(self.model, self.holdout_set)
 
-        valid_score = self.model.predict(self.valid_set["data"])
+            # --- Scores
+            train_score = self.model.predict(self.training_set["data"])
+            holdout_score = self.model.predict(self.holdout_set["data"])
+            valid_score = self.model.predict(self.valid_set["data"])
+            from sklearn.metrics import accuracy_score
 
-        valid_results = compute_mu(
-            valid_score, self.valid_set["weights"], self.saved_info
-        )
+            # After training, calculate accuracy manually on the full training set
+            train_preds = (train_score > 0.5).astype(int)
+            train_labels = self.training_set["labels"]
 
-        print("Train Results: ")
-        for key in train_results.keys():
-            print("\t", key, " : ", train_results[key])
+            train_acc = accuracy_score(train_labels, train_preds)
+            print(f"Final Train Accuracy: {train_acc:.4f}")
+            mlflow.log_metric("final_train_accuracy", train_acc)
 
-        print("Holdout Results: ")
-        for key in holdout_results.keys():
-            print("\t", key, " : ", holdout_results[key])
+            valid_preds = (valid_score > 0.5).astype(int)
+            valid_labels = self.valid_set["labels"]
+            valid_acc = accuracy_score(valid_labels, valid_preds)
+            mlflow.log_metric("final_valid_accuracy", valid_acc)
 
-        print("Valid Results: ")
-        for key in valid_results.keys():
-            print("\t", key, " : ", valid_results[key])
+            holdout_preds = (holdout_score > 0.5).astype(int)
+            holdout_labels = self.holdout_set["labels"]
+            holdout_acc = accuracy_score(holdout_labels, holdout_preds)
+            mlflow.log_metric("final_holdout_accuracy", holdout_acc)
 
-        self.valid_set["data"]["score"] = valid_score
-        from utils import roc_curve_wrapper, histogram_dataset
+                        # --- Save score column
+            self.valid_set["data"]["score"] = valid_score
+            self.training_set["data"]["score"] = train_score
+            self.holdout_set["data"]["score"] = holdout_score
+            
+            # --- mu results
+            train_results = compute_mu(
+                train_score, self.training_set["weights"], self.saved_info
+            )
+            holdout_results = compute_mu(
+                holdout_score, self.holdout_set["weights"], self.saved_info
+            )
+            valid_results = compute_mu(
+                valid_score, self.valid_set["weights"], self.saved_info
+            )
 
-        histogram_dataset(
-            self.valid_set["data"],
-            self.valid_set["labels"],
-            self.valid_set["weights"],
-            columns=["score"],
-        )
+            # --- Print + Log Metrics
+            print("Train Results:")
+            for key, value in train_results.items():
+                print(f"train_{key}", value)
+                mlflow.log_metric(f"train_{key}", value)
 
-        from HiggsML.visualization import stacked_histogram
+            print("Holdout Results:")
+            for key, value in holdout_results.items():
+                print(f"holdout_{key}", value)
+                mlflow.log_metric(f"holdout_{key}", value)
 
-        stacked_histogram(
-            self.valid_set["data"],
-            self.valid_set["labels"],
-            self.valid_set["weights"],
-            self.valid_set["detailed_labels"],
-            "score",
-        )
+            print("Valid Results:")
+            for key, value in valid_results.items():
+                print(f"valid_{key}", value)
+                mlflow.log_metric(f"valid_{key}", value)
 
-        roc_curve_wrapper(
-            score=valid_score,
-            labels=self.valid_set["labels"],
-            weights=self.valid_set["weights"],
-            plot_label="valid_set" + self.name,
-        )
+            # --- Plots
+            from utils import (
+                roc_curve_wrapper,
+                histogram_dataset,
+                stacked_histogram,
+                plot_calibration_curve,
+            )
+
+            # Create a run folder
+            run_dir = "mlruns_temp"
+            os.makedirs(run_dir, exist_ok=True)
+
+            """
+            Plots per-class score distributions (e.g. score of class 0 vs class 1) for the chosen feature(s), like "score".
+            Helps check how well your model separates classes.
+            """
+            # Histogram
+            hist_path1 = histogram_dataset(
+                self.valid_set["data"],
+                self.valid_set["labels"],
+                self.valid_set["weights"],
+                columns=["score"],
+                save_path=f"{run_dir}/main_histogram_valid.png",
+                dataName="valid"
+            )
+            mlflow.log_artifact(hist_path1)
+
+            hist_path2 = histogram_dataset(
+                self.training_set["data"],
+                self.training_set["labels"],
+                self.training_set["weights"],
+                columns=["score"],
+                save_path=f"{run_dir}/main_histogram_train.png",
+                dataName="tain"
+            )
+            mlflow.log_artifact(hist_path2)
+
+            hist_path3 = histogram_dataset(
+                self.holdout_set["data"],
+                self.holdout_set["labels"],
+                self.holdout_set["weights"],
+                columns=["score"],
+                save_path=f"{run_dir}/main_histogram_holdout.png",
+                dataName="holdout"
+            )
+            mlflow.log_artifact(hist_path3)
+
+            # Stacked histogram
+            stacked_path = stacked_histogram(
+                self.valid_set["data"],
+                self.valid_set["labels"],
+                self.valid_set["weights"],
+                self.valid_set["detailed_labels"],
+                "score",
+                save_path=f"{run_dir}/main_stacked_histogram.png",
+            )
+            mlflow.log_artifact(stacked_path)
+
+            # ROC Curve
+            roc_path = roc_curve_wrapper(
+                score=valid_score,
+                labels=self.valid_set["labels"],
+                weights=self.valid_set["weights"],
+                plot_label="valid_set_" + self.name,
+                save_path=f"{run_dir}/main_roc_curve.png",
+            )
+            mlflow.log_artifact(roc_path)
+
+            labels_train = self.training_set["labels"].values
+            print("Unique labels:", np.unique(labels_train))
+
+            # Count how many 0s and 1s
+            print("Label counts:", np.bincount(labels_train.astype(int)))
+
+            # Check some features stats per label
+            data_train = self.training_set["data"]
+            df = pd.DataFrame(data_train)
+            df["label"] = labels_train
+
+            print(df.groupby("label").describe())
+
+            """
+            
+            It shows how well the model’s predicted scores correspond to the true likelihood of an event being signal (Higgs) vs. background in the dataset.
+
+            The model assigns each event a score (e.g., between 0 and 1), estimating how “signal-like” it is.
+
+            The calibration curve bins events by their predicted score.
+
+            For each bin, it calculates the actual fraction of signal events (weighted by event importance) compared to total events.
+
+            It plots this fraction (y-axis) against the average predicted score in that bin (x-axis).
+
+            If your model is perfectly calibrated, the predicted probability matches the true probability, so points lie on the diagonal y=x.
+
+            data_den = training_set scores for background (label 0)
+            data_num = training_set scores for signal (label 1)
+            data_denH = holdout scores for background
+            data_numH = holdout scores for signal
+
+            """
+            calib_path = plot_calibration_curve(
+                data_den=self.training_set["data"]["score"].values[
+                    self.training_set["labels"].values == 0
+                ],
+                weight_den=self.training_set["weights"].values[
+                    self.training_set["labels"].values == 0
+                ],
+                data_num=self.training_set["data"]["score"].values[
+                    self.training_set["labels"].values == 1
+                ],
+                weight_num=self.training_set["weights"].values[
+                    self.training_set["labels"].values == 1
+                ],
+                data_denH=self.holdout_set["data"]["score"][
+                    self.holdout_set["labels"] == 0
+                ],
+                weight_denH=self.holdout_set["weights"][
+                    self.holdout_set["labels"] == 0
+                ],
+                data_numH=self.holdout_set["data"]["score"][
+                    self.holdout_set["labels"] == 1
+                ],
+                weight_numH=self.holdout_set["weights"][
+                    self.holdout_set["labels"] == 1
+                ],
+                epsilon=1.0e-20,
+                label="Calibration Curve",
+                score_range="standard",
+                save=f"{run_dir}/main_calibration_curve.pdf",
+            )
+
+            mlflow.log_artifact(calib_path)
+            from IPython.display import Image, display
+
+            # current_dir = os.path.dirname(__file__)
+            # image_path = os.path.join(current_dir, "nn_architecture.png")
+            # display(Image(filename=image_path))
+            # mlflow.log_artifact(image_path)
+            # print({image_path})
+
+            if self.name == "NN" and hasattr(self.model, "history"):
+                history = self.model.history
+                plt.figure(figsize=(10, 6))
+                plt.plot(history["loss"], label="Train Loss")
+                plt.plot(history["val_loss"], label="Validation Loss")
+                plt.title("Loss Curve")
+                plt.xlabel("Epoch")
+                plt.ylabel("Loss")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                plt.savefig(f"{run_dir}/main_loss_curve.png", bbox_inches="tight")
+                mlflow.log_artifact(f"{run_dir}/main_loss_curve.png")
+                plt.close()
+            # --- Save trained model
+            if self.name == "NN":
+                mlflow.keras.log_model(self.model.model, "keras_model")
+
+            self.syst_model = {}
+
+            systs = ["tes"]
+
+            for syst in systs:
+                logger.info("Training syst model for %s", syst)
+                print("Training syst model for", syst)
+                self.syst_model[syst] = SystModel(
+                    NP=syst,
+                    systematics=self.systematics,
+                    preselection=self.preselection,
+                    base_model=self.model,
+                )
+                if not self.istrained:
+                    self.syst_model[syst].fit(
+                        holdout_set=self.holdout_set, training_set=self.training_set , validation_set=self.valid_set,
+                    )
+                    self.syst_model[syst].save()
+                else:
+                    try:
+                        self.syst_model[syst].load()
+                    except Exception as e:
+                        logger.error("Error loading syst model: %s", e)
+                        self.syst_model[syst].fit(
+                            holdout_set=self.holdout_set, training_set=self.training_set
+                        )
+                        self.syst_model[syst].save()
 
     def predict(self, test_set):
         """
@@ -272,10 +545,13 @@ class Model:
                 - p16
                 - p84
         """
+        stop
 
         test_data = test_set["data"]
         test_weights = test_set["weights"]
 
+        if "score" in test_data:
+            test_data.pop("score")
         predictions = self.model.predict(test_data)
 
         result_mu_cal = compute_mu(predictions, test_weights, self.saved_info)

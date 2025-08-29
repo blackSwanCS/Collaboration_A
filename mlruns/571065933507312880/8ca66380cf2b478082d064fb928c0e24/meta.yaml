@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/571065933507312880/8ca66380cf2b478082d064fb928c0e24/artifacts
+deleted_time: 1752825469439
+end_time: null
+entry_point_name: ''
+experiment_id: '571065933507312880'
+lifecycle_stage: deleted
+run_id: 8ca66380cf2b478082d064fb928c0e24
+run_name: mysterious-skunk-375
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1752825420940
+status: 1
+tags: []
+user_id: Abdullah_Jamal

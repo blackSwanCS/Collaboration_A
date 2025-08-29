@@ -1,0 +1,14 @@
+artifact_uri: file:///sps/ijclab/lalorsay/abdallah/Higgs_collaborations/sample_code_submission/mlruns/539181807820440873/2f4c09d964394245923ee16245d2e4f5/artifacts
+end_time: 1754341414221
+entry_point_name: ''
+experiment_id: '539181807820440873'
+lifecycle_stage: active
+run_id: 2f4c09d964394245923ee16245d2e4f5
+run_name: BDT-all featurse-1
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1754341361500
+status: 3
+tags: []
+user_id: aalharrem
